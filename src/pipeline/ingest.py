@@ -13,6 +13,7 @@ Salida   : data/processed/
 """
 
 import os
+import sys
 import pandas as pd
 
 # ── Rutas ────────────────────────────────────────────────────────────────────
@@ -24,6 +25,16 @@ MIN_RATINGS_PELICULA = 5        # umbral mínimo de ratings por película
 MAX_RATINGS_USUARIO  = 10_000   # umbral máximo de ratings por usuario
 SAMPLE_SIZE          = 100_000  # tamaño del subconjunto para desarrollo
 RANDOM_STATE         = 42       # semilla para reproducibilidad
+
+# ── Archivos esperados en data/processed/ ────────────────────────────────────
+ARCHIVOS_ESPERADOS = [
+    "ratings_clean.csv",
+    "ratings_sample.csv",
+    "movies_clean.csv",
+    "links_clean.csv",
+    "tags_clean.csv"
+]
+
 
 
 def cargar_datos(raw_dir):
@@ -119,6 +130,19 @@ def main():
     print("═" * 55)
     print("  CineMatch — Pipeline de ingesta y limpieza")
     print("═" * 55)
+
+    # ── Verificamos si los datos procesados ya existen ───────────────────────
+    archivos_existentes = [
+        f for f in ARCHIVOS_ESPERADOS
+        if os.path.exists(os.path.join(PROCESSED_DIR, f))
+    ]
+
+    if len(archivos_existentes) == len(ARCHIVOS_ESPERADOS) and "--force" not in sys.argv:
+        print("\n⚠️  Los datos procesados ya existen en data/processed/")
+        print("   Usa --force para reprocesar de cero")
+        print("═" * 55)
+        return
+
 
     ratings, movies, links, tags = cargar_datos(RAW_DIR)
     validar_datos(ratings, movies, links, tags)
