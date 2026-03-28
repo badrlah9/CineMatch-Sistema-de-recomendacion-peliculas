@@ -1,10 +1,14 @@
 # macOs
 .DS_Store
 
-# data 
+# data
 data/raw/*
 data/processed/*
 *.zip
+
+# excepto .gitkeep
+!data/raw/.gitkeep
+!data/processed/.gitkeep
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
