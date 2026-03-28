@@ -1,15 +1,15 @@
-# 🎬 Motor de Recomendación Inteligente
+# 🎬 CineMatch — Sistema de Recomendación de Películas
 
 ## 🎯 Objetivo
 Desarrollar un sistema de recomendación escalable que genere sugerencias personalizadas de películas a partir del historial de valoraciones de los usuarios, mejorando la experiencia de descubrimiento y retención del contenido.
 
 ---
 
-## 👥 Miembros del equipo (Asignación de roles en proceso)
-- **Badr Lahrarti** –   
-- **Alejandro Miguel González Mateos** – 
-- **Daniel Ruiz González** –  
-- **Francisco López Fenoll** –  
+## 👥 Equipo — Grupo E-12
+- **Badr Lahrarti** –  Data Engineer & Coordinador Técnico
+- **Alejandro Miguel González Mateos** – Machine Learning Engineer
+- **Daniel Ruiz González** –  Backend & API Developer
+- **Francisco López Fenoll** –  Frontend & Visualización Developer
 
 ---
 
@@ -24,19 +24,21 @@ Desarrollar un sistema de recomendación escalable que genere sugerencias person
 
 ## ⚙️ Tecnologías previstas
 - Python 3.x  
-- pandas / numpy  
-- scikit-learn  
+- scikit-learn / pandas / numpy  
+- PostgreSQL
 - Streamlit (interfaz de usuario)  
 - FastAPI
-- GitHub (colaboración)  
-
+- Pytest
+- GitHub, Trello, VS Code 
 ---
 
 ## 🚀 Nota inicial
-Este repositorio es la base para la **Fase 0 del proyecto**, con estructura mínima operativa.  
+Este repositorio es la base para la **Fase 1 del proyecto**, con estructura mínima operativa.  
 A medida que avancemos, se irán añadiendo:
 
 - Código de procesamiento de datos  
 - Modelos de recomendación  
 - API y mini-interfaz para mostrar resultados  
 - Documentación adicional y métricas del sistema  
+
+## 🚀 Instalación y uso (en proceso)
