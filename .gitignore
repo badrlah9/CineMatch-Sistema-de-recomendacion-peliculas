@@ -1,6 +1,11 @@
 # macOs
 .DS_Store
 
+# data 
+data/raw/
+data/processed/
+*.zip
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
