@@ -1,22 +1,40 @@
 import pandas as pd
-import ast
 
-# Importar funciones del modelo
-from baseline import train_baseline, recommend_by_genres
+from baseline import recommend_movies
+
 
 def main():
-    ratings = pd.read_csv("data/processed/ratings_sample.csv")
-    movies = pd.read_csv("data/processed/movies_clean.csv")
+    # -----------------------------
+    # 1. Cargar datos
+    # -----------------------------
+    movies_df = pd.read_csv("data/processed/movies_clean.csv")
+    ratings_df = pd.read_csv("data/processed/ratings_sample.csv")
 
-    movies["genres"] = movies["genres"].apply(ast.literal_eval)
+    # -----------------------------
+    # 3. Definir preferencias usuario
+    # -----------------------------
+    user_preferences = {
+        "Action": 1.0,
+        "Comedy": 0.5,
+        "Sci-Fi": 0.8,
+        "Drama": 0.5
+    }
 
-    model = train_baseline(ratings, movies)
+    # -----------------------------
+    # 4. Generar recomendaciones
+    # -----------------------------
+    recs = recommend_movies(
+        movies_df=movies_df,
+        ratings_df=ratings_df,
+        user_preferences=user_preferences,
+        top_n=10
+    )
 
-    genres = ['Drama']
-    recs = recommend_by_genres(model, genres)
-
-    print("\nRecomendaciones:\n")
-    print(recs)
+    # -----------------------------
+    # 5. Mostrar resultados
+    # -----------------------------
+    print("\n🎬 Recomendaciones:\n")
+    print(recs.to_string(index=False))
 
 
 if __name__ == "__main__":
