@@ -1,3 +1,38 @@
+"""
+======================================================
+BASELINE RECOMMENDER - CINE MATCH
+======================================================
+
+Este módulo implementa un sistema de recomendación simple
+(baseline) basado en popularidad y filtrado por géneros.
+
+Funcionamiento general:
+1. Se calculan las películas mejor valoradas (media de ratings)
+   filtrando aquellas con pocas valoraciones (ruido).
+2. Se permite filtrar recomendaciones en función de los géneros
+   deseados por el usuario.
+3. Se calcula un score de coincidencia de géneros para priorizar
+   las películas más relevantes.
+
+Este modelo NO utiliza machine learning avanzado, pero sirve como:
+- Punto de partida (baseline)
+- Referencia para comparar modelos más complejos
+- Sistema rápido y eficiente para recomendaciones iniciales
+
+Entradas:
+- ratings: DataFrame con valoraciones de usuarios
+- movies: DataFrame con información de películas (incluyendo géneros)
+
+Salida:
+- DataFrame con recomendaciones ordenadas por relevancia
+
+Nota:
+Se asume que la columna 'genres' ya está preprocesada como lista
+(no string). La limpieza de datos debe hacerse fuera de este módulo.
+======================================================
+"""
+
+
 import pandas as pd
 
 
@@ -16,22 +51,35 @@ def train_baseline(ratings, movies, min_ratings=20):
     DataFrame con películas ordenadas por rating medio
     """
 
-    # Contar número de ratings por película
+    # --------------------------------------------------
+    # 1. Número de ratings por película
+    # --------------------------------------------------
     ratings_count = ratings.groupby("movieId")["rating"].count()
 
-    # Filtrar películas con suficientes valoraciones
+    # --------------------------------------------------
+    # 2. Filtrar películas con suficientes valoraciones
+    # --------------------------------------------------
     valid_movies = ratings_count[ratings_count >= min_ratings].index
 
-    # Mantener solo ratings de películas válidas
     filtered_ratings = ratings[ratings["movieId"].isin(valid_movies)]
 
-    # Calcular rating medio y ordenar
+    # --------------------------------------------------
+    # 3. Calcular rating medio
+    # --------------------------------------------------
     top_movies = (
         filtered_ratings.groupby("movieId")["rating"]
-        .mean()  # media de rating
-        .sort_values(ascending=False)  # ordenar de mayor a menor
+        .mean()
         .reset_index()
-        .merge(movies, on="movieId")  # añadir info de películas
+        .rename(columns={"rating": "rating"})  # opcional, claridad
+    )
+
+    # --------------------------------------------------
+    # 4. Ordenar + añadir info de películas
+    # --------------------------------------------------
+    top_movies = (
+        top_movies
+        .sort_values(by="rating", ascending=False)
+        .merge(movies, on="movieId")
     )
 
     return top_movies
@@ -45,53 +93,52 @@ def recommend_by_genres(df, input_genres, n=10, min_match=0.75):
     - df: modelo baseline (ranking de películas)
     - input_genres: lista de géneros deseados
     - n: número de recomendaciones a devolver
-    - min_match: porcentaje mínimo de coincidencia de géneros
+    - min_match: porcentaje mínimo de coincidencia
 
-    Pasos:
-    1. Calcula coincidencias de géneros (genre_score)
-    2. Calcula porcentaje de coincidencia (genre_coverage)
-    3. Filtra según el umbral mínimo
-    4. Si no hay resultados, aplica fallback
-    5. Ordena por rating y devuelve top N
+    Devuelve:
+    DataFrame con recomendaciones (incluyendo movieId)
     """
 
-    # Copia para evitar modificar el DataFrame original
+    # --------------------------------------------------
+    # 1. Copia para no modificar el original
+    # --------------------------------------------------
     df = df.copy()
 
-    # Calcular número de géneros en común con el input
+    # --------------------------------------------------
+    # 2. Score de coincidencia de géneros
+    # --------------------------------------------------
     df["genre_score"] = df["genres"].apply(
         lambda genres: len(set(genres) & set(input_genres))
     )
 
-    # Calcular porcentaje de coincidencia respecto al input
+    # --------------------------------------------------
+    # 3. Porcentaje de coincidencia
+    # --------------------------------------------------
     df["genre_coverage"] = df["genre_score"] / len(input_genres)
 
-    # Filtrar por mínimo porcentaje de coincidencia
+    # --------------------------------------------------
+    # 4. Filtrado por umbral
+    # --------------------------------------------------
     df_filtered = df[df["genre_coverage"] >= min_match]
 
-    # Fallback: si no hay resultados, relajar condición
+    # Fallback si no hay resultados
     if df_filtered.empty:
         df_filtered = df[df["genre_score"] > 0]
 
-    # Ordenar por rating (mejor valoradas primero)
+    # --------------------------------------------------
+    # 5. Ordenar y devolver columnas clave
+    # --------------------------------------------------
     return (
         df_filtered
         .sort_values(by="rating", ascending=False)
-        .head(n)[["title", "rating", "genres", "genre_score", "genre_coverage"]]
+        .head(n)[
+            ["movieId", "title", "rating", "genres"]
+        ]
     )
 
 
 def get_recommendations(model, genres, n=10):
     """
-    Función de alto nivel para obtener recomendaciones.
-
-    Recibe:
-    - model: resultado de train_baseline (ya entrenado)
-    - genres: lista de géneros del usuario
-    - n: número de recomendaciones
-
-    Devuelve:
-    - Top N películas recomendadas
+    Wrapper de alto nivel para obtener recomendaciones.
     """
-
     return recommend_by_genres(model, genres, n)
