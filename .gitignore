@@ -6,6 +6,11 @@ data/raw/*
 data/processed/*
 *.zip
 
+# Modelos
+*.pth
+*.pt
+*.pkl
+
 # excepto .gitkeep
 !data/raw/.gitkeep
 !data/processed/.gitkeep
