@@ -1,23 +1,3 @@
-# CineMatch — integración completa Keras + híbrido externo
-
-Este paquete está adaptado a tu caso real:
-
-- **el usuario de tu app no existe en MovieLens**
-- **no se usa el `user_id` como usuario conocido del train**
-- **sí se usan los patrones aprendidos en MovieLens**
-- la parte colaborativa sale de:
-  - un **perfil temporal** inferido desde los ratings del usuario actual
-  - **vecinos similares** en embeddings históricos
-- se mantiene el comportamiento principal del sistema:
-  - contenido
-  - colaborativo
-  - vecinos
-  - rotación/diversidad
-  - servicio FastAPI
-  - simulador local / HTTP
-
----
-
 ## 1. Estructura recomendada del proyecto
 
 Copia los ficheros así:
