@@ -1,9 +1,12 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.config   import get_settings
-from app.database import engine
+from app.database import engine, get_db
+from app.models   import Genre
+from app.schemas  import GenreOut
 from app.routers  import auth, recommendations, movies, preferences
 
 settings = get_settings()
@@ -29,6 +32,17 @@ app.include_router(auth.router)
 app.include_router(recommendations.router)
 app.include_router(movies.router)
 app.include_router(preferences.router)
+
+
+# Géneros
+@app.get(
+    "/genres",
+    response_model=list[GenreOut],
+    tags=["Géneros"],
+    summary="Listar todos los géneros disponibles",
+)
+def list_genres(db: Session = Depends(get_db)):
+    return db.query(Genre).order_by(Genre.name).all()
 
 
 # Health check

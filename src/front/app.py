@@ -1,15 +1,20 @@
+import json
+import re
+
+import requests
 import streamlit as st
 import streamlit.components.v1 as components
+
+API_URL = "http://localhost:8000"
 
 # 1. Configuración de página
 st.set_page_config(page_title="Cinematch - TFM", page_icon="🎬", layout="centered")
 
-# 2. Estilos de Streamlit (Login y Global) - RESPETANDO TU PALETA
+# 2. Estilos
 st.markdown("""
     <style>
     .stApp { background-color: #161614; }
-    
-    /* El contenedor principal con tus colores: #3B443F y #3F2B1F */
+
     [data-testid="stVerticalBlockBorderWrapper"] {
         background-color: #3B443F !important;
         border-radius: 20px !important;
@@ -17,12 +22,10 @@ st.markdown("""
         box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
         border: 1px solid #3F2B1F !important;
     }
-    
-    /* Textos en el color tierra suave #A08B77 */
+
     h2, p, label { color: #A08B77 !important; text-align: center; }
     input { background-color: #161614 !important; color: #A08B77 !important; border: 1px solid #3F2B1F !important; }
-    
-    /* Botón en tu granate #78444A */
+
     .stButton>button {
         background-color: #78444A !important;
         color: #ffffff !important;
@@ -50,6 +53,61 @@ st.markdown("""
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
+if "token" not in st.session_state:
+    st.session_state.token = None
+
+
+# Helpers
+
+def _extract_year(title: str) -> str:
+    m = re.search(r'\((\d{4})\)', title)
+    return m.group(1) if m else ""
+
+def _clean_title(title: str) -> str:
+    return re.sub(r'\s*\(\d{4}\)\s*$', '', title).strip()
+
+def _fetch_movies(token: str) -> list[dict]:
+    """Obtiene recomendaciones personalizadas; si falla, usa las más populares."""
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        resp = requests.get(
+            f"{API_URL}/recommendations/me",
+            headers=headers,
+            params={"k": 10, "enrich_tmdb": True},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return resp.json().get("recommendations", [])
+    except requests.RequestException:
+        pass
+
+    # Fallback: películas populares (no requiere auth)
+    try:
+        resp = requests.get(
+            f"{API_URL}/recommendations/popular",
+            params={"k": 10, "enrich_tmdb": True},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return resp.json().get("recommendations", [])
+    except requests.RequestException:
+        pass
+
+    return []
+
+def _to_card(rec: dict) -> dict:
+    title = rec.get("title", "")
+    return {
+        "title":    _clean_title(title),
+        "year":     _extract_year(title),
+        "genre":    ", ".join(rec.get("genres", [])),
+        "image":    rec.get("poster_url") or "",
+        "rating":   min(5, max(1, round(rec.get("score", 3)))),
+        "synopsis": rec.get("overview") or "Sin sinopsis disponible.",
+    }
+
+
+# Pantallas
 
 def login_screen():
     _, col_card, _ = st.columns([0.5, 2, 0.5])
@@ -60,20 +118,37 @@ def login_screen():
             user = st.text_input("Usuario")
             password = st.text_input("Contraseña", type="password")
             if st.button("Iniciar Sesión"):
-                if user == "admin" and password == "2544":
-                    st.session_state.authenticated = True
-                    st.rerun()
-        
+                try:
+                    resp = requests.post(
+                        f"{API_URL}/auth/login",
+                        json={"username": user, "password": password},
+                        timeout=5,
+                    )
+                    if resp.status_code == 200:
+                        st.session_state.authenticated = True
+                        st.session_state.token = resp.json()["access_token"]
+                        st.rerun()
+                    else:
+                        st.error("Credenciales incorrectas")
+                except requests.RequestException:
+                    st.error("No se puede conectar con el servidor. ¿Está el backend en marcha?")
+
         st.markdown('''
             <div class="register-container">
                 <a href="/Login" target="_self" class="register-link">¿No tienes cuenta? Regístrate aquí</a>
             </div>
         ''', unsafe_allow_html=True)
 
+
 def dashboard():
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.authenticated = False
+        st.session_state.token = None
         st.rerun()
+
+    recs = _fetch_movies(st.session_state.token)
+    movies_data = [_to_card(r) for r in recs]
+    movies_json = json.dumps(movies_data, ensure_ascii=False)
 
     html_code = """
     <!DOCTYPE html>
@@ -91,35 +166,23 @@ def dashboard():
             .perspective-container { perspective: 1200px; }
             .flip-card-inner { position: relative; width: 100%; height: 100%; transition: transform 0.7s cubic-bezier(0.4, 0, 0.2, 1); transform-style: preserve-3d; }
             .flipped { transform: rotateY(180deg); }
-            
-            /* Cartas con bordes y sombras coherentes */
             .card-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 2.5rem; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); border: 1px solid rgba(255,255,255,0.05); }
             .card-back { transform: rotateY(180deg); background: linear-gradient(145deg, #1e1e1e, #121212); border: 1px solid #333; padding: 2.5rem; display: flex; flex-direction: column; }
-            
-            /* Título CINEMATCH con TUS COLORES: #dc2626 y #db2777 */
             .cinematch-title {
-                font-size: 3.5rem; 
-                font-weight: 900; 
-                font-style: italic; 
-                letter-spacing: -0.05em;
+                font-size: 3.5rem; font-weight: 900; font-style: italic; letter-spacing: -0.05em;
                 background: linear-gradient(to right, #C7AD93, #FAD9B9);
-                -webkit-background-clip: text; 
-                -webkit-text-fill-color: transparent;
-                width: 100%;
-                text-align: center;
-                display: block;
-                margin-bottom: 0;
-                filter: drop-shadow(0 4px 10px rgba(220, 38, 38, 0.2)); /* Sutil brillo rojo */
+                -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+                width: 100%; text-align: center; display: block; margin-bottom: 0;
             }
-
             .info-label { color: #A08B77; font-weight: bold; text-transform: uppercase; font-size: 10px; letter-spacing: 0.1em; }
+            .no-poster { background: linear-gradient(145deg, #2a2a2a, #1a1a1a); display: flex; align-items: center; justify-content: center; color: #555; font-size: 4rem; }
         </style>
     </head>
     <body class="flex items-center justify-center">
         <div class="flex flex-col items-center w-full max-w-lg px-4">
             <header class="mb-6 w-full text-center">
                 <h1 class="cinematch-title">CINEMATCH</h1>
-                <p class="text-gray-500 text-[10px] uppercase tracking-[0.3em] font-bold">Frontend Preview v1.0</p>
+                <p class="text-gray-500 text-[10px] uppercase tracking-[0.3em] font-bold">Tus recomendaciones</p>
             </header>
 
             <div id="card-wrapper" class="perspective-container w-full aspect-[2/3] max-w-[340px]">
@@ -141,29 +204,34 @@ def dashboard():
         </div>
 
         <script>
-            const movies = [
-                { title: "Dune: Part Two", year: "2024", genre: "Sci-Fi / Épica", image: "https://image.tmdb.org/t/p/w500/czembS0RhiERbtNR7nU8hL94STb.jpg", rating: 5, synopsis: "Paul Atreides se une a la tribu de los Fremen y comienza un viaje espiritual y militar para convertirse en mesías." },
-                { title: "Oppenheimer", year: "2023", genre: "Biográfico / Drama", image: "https://image.tmdb.org/t/p/w500/8Gxv8ZSbtOUvXFixSyUAs3P92ky.jpg", rating: 4, synopsis: "Durante la Segunda Guerra Mundial, el físico J. Robert Oppenheimer trabaja en el Proyecto Manhattan para construir la primera bomba atómica." }
-            ];
+            const movies = __MOVIES_DATA__;
             let currentIndex = 0;
 
             function renderCard() {
                 const inner = document.getElementById('flip-inner');
                 const movie = movies[currentIndex];
                 if (!movie) {
-                    document.getElementById('card-wrapper').innerHTML = "<div class='text-center text-gray-500 mt-20 italic'>Demo finalizada</div>";
+                    document.getElementById('card-wrapper').innerHTML = "<div class='text-center text-gray-500 mt-20 italic'>Has visto todas las recomendaciones</div>";
                     return;
                 }
                 let stars = "";
                 for(let i=1; i<=5; i++) stars += `<i class="fa-solid fa-star ${i <= movie.rating ? 'text-yellow-500' : 'text-gray-800'} text-xs"></i> `;
 
+                const imgContent = movie.image
+                    ? `<img src="${movie.image}" class="w-full h-full object-cover">`
+                    : `<div class="w-full h-full no-poster"><i class="fa-solid fa-film"></i></div>`;
+
                 inner.innerHTML = `
                     <div class="card-face">
-                        <img src="${movie.image}" class="w-full h-full object-cover">
+                        ${imgContent}
                         <button onclick="toggleFlip(event)" class="absolute top-6 right-6 w-12 h-12 bg-black/40 backdrop-blur-xl rounded-full flex items-center justify-center border border-white/20 text-white z-50 hover:scale-110 transition-transform"><i class="fa-solid fa-info"></i></button>
                         <div class="absolute bottom-0 left-0 right-0 p-8 bg-gradient-to-t from-black via-black/80 to-transparent">
                             <h2 class="text-3xl font-extrabold leading-tight">${movie.title}</h2>
-                            <div class="flex items-center gap-3 mt-2 text-gray-400 font-medium"><span>${movie.year}</span><span>•</span><span>${movie.genre}</span></div>
+                            <div class="flex items-center gap-3 mt-2 text-gray-400 font-medium">
+                                <span>${movie.year}</span>
+                                ${movie.year && movie.genre ? '<span>•</span>' : ''}
+                                <span>${movie.genre}</span>
+                            </div>
                         </div>
                     </div>
                     <div class="card-face card-back">
@@ -180,12 +248,12 @@ def dashboard():
                             </div>
                             <div class="grid grid-cols-2 gap-4 pt-4">
                                 <div class="bg-white/5 p-3 rounded-2xl border border-white/5">
-                                    <p class="info-label">Idioma</p>
-                                    <p class="text-xs">Original (V.O.S.E)</p>
+                                    <p class="info-label">Género</p>
+                                    <p class="text-xs">${movie.genre || 'N/A'}</p>
                                 </div>
                                 <div class="bg-white/5 p-3 rounded-2xl border border-white/5">
-                                    <p class="info-label">Calidad</p>
-                                    <p class="text-xs">4K Ultra HD</p>
+                                    <p class="info-label">Año</p>
+                                    <p class="text-xs">${movie.year || 'N/A'}</p>
                                 </div>
                             </div>
                         </div>
@@ -210,7 +278,10 @@ def dashboard():
     </body>
     </html>
     """
+
+    html_code = html_code.replace("__MOVIES_DATA__", movies_json)
     components.html(html_code, height=920)
+
 
 if not st.session_state.authenticated:
     login_screen()
