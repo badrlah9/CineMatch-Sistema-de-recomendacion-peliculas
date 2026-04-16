@@ -107,7 +107,26 @@ psql -U cinematch_user -d cinematch -f src/backend/cinematch_schema.sql
 
 ---
 
-### Paso 3 — Configurar el backend
+### Paso 3 — Instalar todas las dependencias
+
+Desde la raíz del proyecto, crea un único entorno virtual e instala todo de una vez:
+
+```bash
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+# Mac/Linux
+source .venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+> TensorFlow (incluido en `requirements.txt`) requiere al menos 2 GB libres en disco y ~4 GB de RAM.
+
+---
+
+### Paso 4 — Configurar el backend
 
 Crea el archivo `src/backend/.env` con este contenido:
 
@@ -123,24 +142,9 @@ ML_SERVICE_URL=http://localhost:8001
 > **TMDB_API_KEY** es opcional pero necesaria para ver pósters y sinopsis.
 > Consíguela gratis en [themoviedb.org](https://www.themoviedb.org/) → Configuración → API.
 
-Instala las dependencias del backend:
-
-```bash
-cd src/backend
-python -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-# Mac/Linux
-source .venv/bin/activate
-
-pip install -r requirements.txt
-cd ../..
-```
-
 ---
 
-### Paso 4 — Obtener los datos de MovieLens
+### Paso 5 — Obtener los datos de MovieLens
 
 Los datos NO están en el repositorio por su tamaño (~1 GB). Hay dos opciones:
 
@@ -157,7 +161,7 @@ data/processed/
 └── tags_clean.csv
 ```
 
-Salta al Paso 5.
+Salta al Paso 6.
 
 **Opción B — Procesar desde cero**
 
@@ -169,13 +173,12 @@ python src/pipeline/ingest.py
 
 ---
 
-### Paso 5 — Cargar los datos en PostgreSQL
+### Paso 6 — Cargar los datos en PostgreSQL
 
-Con el entorno del backend activado:
+Con el entorno activado, desde la raíz del proyecto:
 
 ```bash
-cd src/backend
-python scripts/load_data.py --data-dir ../../data/processed --sample
+python src/backend/scripts/load_data.py --data-dir data/processed --sample
 ```
 
 > `--sample` carga 100.000 ratings (rápido, recomendado para desarrollo).
@@ -188,13 +191,9 @@ Cargados 87585 links
 Cargados 100000 ratings
 ```
 
-```bash
-cd ../..
-```
-
 ---
 
-### Paso 6 — Obtener el modelo entrenado
+### Paso 7 — Obtener el modelo entrenado
 
 Los artefactos del modelo tampoco están en git por su tamaño. Pide a Alejandro los tres archivos y colócalos en `artifacts/tf_model/`:
 
@@ -207,7 +206,7 @@ artifacts/tf_model/
 
 ---
 
-### Paso 7 — Configurar el servicio ML
+### Paso 8 — Configurar el servicio ML
 
 Crea el archivo `src/ml/.env` con este contenido:
 
@@ -219,52 +218,24 @@ CINEMATCH_MAPPINGS_PATH=../../artifacts/tf_model/mappings.pkl
 CINEMATCH_METADATA_PATH=../../artifacts/tf_model/model_metadata.json
 ```
 
-Instala las dependencias del servicio ML:
-
-```bash
-cd src/ml
-python -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-# Mac/Linux
-source .venv/bin/activate
-
-pip install -r requirements.txt
-cd ../..
-```
-
-> TensorFlow requiere al menos 2 GB libres en disco y ~4 GB de RAM.
-
----
-
-### Paso 8 — Instalar el frontend
-
-```bash
-cd src/front
-python -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-# Mac/Linux
-source .venv/bin/activate
-
-pip install -r requirements.txt
-cd ../..
-```
-
 ---
 
 ## Arrancar la aplicación
 
-Necesitas **tres terminales** abiertas en la raíz del proyecto.
+Necesitas **tres terminales** abiertas en la raíz del proyecto.  
+En cada una, activa primero el entorno virtual:
+
+```bash
+# Windows
+.venv\Scripts\activate
+# Mac/Linux
+source .venv/bin/activate
+```
 
 ### Terminal 1 — Backend (puerto 8000)
 
 ```bash
 cd src/backend
-.venv\Scripts\activate      # Windows
-# source .venv/bin/activate  # Mac/Linux
 python -m uvicorn app.main:app --port 8000 --reload
 ```
 
@@ -274,8 +245,6 @@ Verifica: [http://localhost:8000/health](http://localhost:8000/health)
 
 ```bash
 cd src/ml
-.venv\Scripts\activate      # Windows
-# source .venv/bin/activate  # Mac/Linux
 python -m uvicorn fastapi_app:app --port 8001
 ```
 
@@ -287,8 +256,6 @@ Verifica: [http://localhost:8001/health](http://localhost:8001/health)
 
 ```bash
 cd src/front
-.venv\Scripts\activate      # Windows
-# source .venv/bin/activate  # Mac/Linux
 streamlit run app.py
 ```
 
