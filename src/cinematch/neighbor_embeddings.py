@@ -1,13 +1,16 @@
-
-"""
-Recomendador de usuarios similares apoyado en embeddings.
-
-Diferencia clave respecto a la versión anterior:
-- ya no depende de que `user_id` exista en el entrenamiento
-- puede apoyarse en un perfil temporal inferido a partir de ratings reales
-"""
-
 from __future__ import annotations
+
+"""
+Módulo de usuarios similares usando embeddings históricos.
+
+No sustituye al colaborativo principal.
+Lo complementa aportando otra señal:
+"usuarios parecidos a tu perfil temporal valoraron bien esta película".
+
+Importante:
+- esta versión NO usa al usuario actual como usuario conocido del train
+- siempre resuelve la consulta desde `user_ratings_df`
+"""
 
 from typing import Iterable, Optional, Sequence
 
@@ -17,11 +20,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 
 class UserBasedEmbeddingsRecommender:
-    """
-    Busca usuarios históricos parecidos en el espacio de embeddings
-    y agrega películas que esos usuarios valoraron bien.
-    """
-
     RESULT_COLUMNS = [
         "movieId",
         "embedding_score",
@@ -35,9 +33,11 @@ class UserBasedEmbeddingsRecommender:
 
     def __init__(
         self,
-        svd_recommender,
+        collaborative_recommender,
         ratings_df: pd.DataFrame,
         movies_df: pd.DataFrame,
+        *,
+        min_votes: int = 15,
     ) -> None:
         required_ratings = {"userId", "movieId", "rating"}
         missing_ratings = required_ratings - set(ratings_df.columns)
@@ -53,70 +53,63 @@ class UserBasedEmbeddingsRecommender:
                 f"movies_df no tiene columnas necesarias: {sorted(missing_movies)}"
             )
 
-        self.rec = svd_recommender
+        self.rec = collaborative_recommender
         self.ratings_df = ratings_df.copy()
         self.movies_df = movies_df.copy()
+        self.min_votes = int(min_votes)
 
-        self.user_embeddings = self.rec.model.user_embedding.weight.detach().cpu().numpy()
+        # Estos embeddings corresponden a usuarios históricos del entrenamiento.
+        self.user_embeddings = self.rec.user_embeddings
         self.user_to_index = self.rec.user_to_index
-        self.index_to_user = {v: k for k, v in self.user_to_index.items()}
+        self.index_to_user = {index: user_id for user_id, index in self.user_to_index.items()}
 
     def _empty_result(self) -> pd.DataFrame:
         return pd.DataFrame(columns=self.RESULT_COLUMNS)
 
     def _resolve_query_vector(
         self,
-        user_id: int | str | None = None,
         user_ratings_df: Optional[pd.DataFrame] = None,
     ) -> Optional[np.ndarray]:
         """
-        Devuelve el vector del usuario sobre el que vamos a buscar vecinos.
+        Obtiene el vector sobre el que vamos a buscar vecinos.
+
+        En esta versión:
+        - siempre se infiere desde ratings del usuario actual
+        - nunca se usa `user_id` como embedding directo del train
         """
-        if user_ratings_df is not None and not user_ratings_df.empty:
-            profile = self.rec.infer_user_profile(user_ratings_df)
-            if profile is not None:
-                return profile.vector.reshape(1, -1)
+        if user_ratings_df is None or user_ratings_df.empty:
+            return None
 
-        if user_id in self.user_to_index:
-            user_idx = self.user_to_index[user_id]
-            return self.user_embeddings[user_idx].reshape(1, -1)
+        profile = self.rec.infer_user_profile(user_ratings_df)
+        if profile is None:
+            return None
 
-        return None
+        return profile.vector.reshape(1, -1)
 
     def _get_similar_users(
         self,
-        user_id: int | str | None = None,
         user_ratings_df: Optional[pd.DataFrame] = None,
         top_k: int = 40,
         min_similarity: float = 0.10,
     ) -> list[tuple[int | str, float]]:
         """
-        Obtiene usuarios históricos más parecidos.
+        Devuelve usuarios históricos más parecidos al perfil temporal actual.
         """
-        query_vector = self._resolve_query_vector(
-            user_id=user_id,
-            user_ratings_df=user_ratings_df,
-        )
+        query_vector = self._resolve_query_vector(user_ratings_df=user_ratings_df)
         if query_vector is None:
             return []
 
-        sims = cosine_similarity(query_vector, self.user_embeddings)[0]
-        similar_indices = np.argsort(sims)[::-1]
+        similarities = cosine_similarity(query_vector, self.user_embeddings)[0]
+        candidate_indices = np.argsort(similarities)[::-1]
 
         results: list[tuple[int | str, float]] = []
-        for idx in similar_indices:
-            sim = float(sims[idx])
-
-            if sim < min_similarity:
+        for index in candidate_indices:
+            similarity = float(similarities[index])
+            if similarity < min_similarity:
                 continue
 
-            user_candidate = self.index_to_user[idx]
-
-            # Si el query user es histórico, evitamos devolverse a sí mismo.
-            if user_id in self.user_to_index and user_candidate == user_id:
-                continue
-
-            results.append((user_candidate, sim))
+            candidate_user_id = self.index_to_user[index]
+            results.append((candidate_user_id, similarity))
 
             if len(results) >= top_k:
                 break
@@ -134,9 +127,12 @@ class UserBasedEmbeddingsRecommender:
     ) -> pd.DataFrame:
         """
         Puntúa candidatas según usuarios similares en embeddings.
+
+        `user_id` se acepta solo para mantener interfaz uniforme.
         """
+        del user_id
+
         similar_users = self._get_similar_users(
-            user_id=user_id,
             user_ratings_df=user_ratings_df,
             top_k=top_k_users,
             min_similarity=min_similarity,
@@ -144,11 +140,11 @@ class UserBasedEmbeddingsRecommender:
         if not similar_users:
             return self._empty_result()
 
-        sim_dict = dict(similar_users)
+        similarity_by_user = dict(similar_users)
         seen_movie_ids = set(seen_movie_ids or [])
 
         df = self.ratings_df[
-            (self.ratings_df["userId"].isin(sim_dict.keys()))
+            (self.ratings_df["userId"].isin(similarity_by_user.keys()))
             & (~self.ratings_df["movieId"].isin(seen_movie_ids))
         ].copy()
 
@@ -159,26 +155,26 @@ class UserBasedEmbeddingsRecommender:
         if df.empty:
             return self._empty_result()
 
-        df["sim"] = df["userId"].map(sim_dict).astype(float)
+        df["similarity"] = df["userId"].map(similarity_by_user).astype(float)
 
-        # Centrar ratings en 3.0 ayuda a que los muy neutrales pesen menos.
+        # Centramos ratings en 3.0 para que lo neutro pese menos.
         df["centered_rating"] = df["rating"].astype(float) - 3.0
-        df["weighted"] = df["centered_rating"] * df["sim"]
+        df["weighted"] = df["centered_rating"] * df["similarity"]
 
         grouped = df.groupby("movieId").agg(
             weighted_sum=("weighted", "sum"),
-            sim_sum=("sim", "sum"),
+            similarity_sum=("similarity", "sum"),
             neighbor_support=("userId", "nunique"),
-            mean_neighbor_similarity=("sim", "mean"),
+            mean_neighbor_similarity=("similarity", "mean"),
         ).reset_index()
 
-        grouped = grouped[grouped["sim_sum"] > 0]
+        grouped = grouped[grouped["similarity_sum"] > 0]
         if grouped.empty:
             return self._empty_result()
 
-        # Volvemos a escala interpretable.
+        # Volvemos a una escala interpretable cercana al rating.
         grouped["embedding_score"] = 3.0 + (
-            grouped["weighted_sum"] / grouped["sim_sum"]
+            grouped["weighted_sum"] / grouped["similarity_sum"]
         )
         grouped["embedding_score"] = grouped["embedding_score"].clip(0.5, 5.0)
 
@@ -198,17 +194,22 @@ class UserBasedEmbeddingsRecommender:
         popularity = np.log1p(grouped["num_ratings"])
         popularity = popularity / popularity.max() if popularity.max() > 0 else 0.0
 
+        # Mezcla suave de:
+        # - la señal colaborativa de vecinos
+        # - la calidad del catálogo
+        # - la popularidad
         grouped["embedding_score"] = (
             grouped["embedding_score"] * 0.72
             + (grouped["rating"] / 5.0) * 0.18
             + popularity * 0.10
         )
 
+        # Regularización ligera: si pocos vecinos la apoyan, baja algo el score.
         grouped["embedding_score"] *= (
             grouped["neighbor_support"] / (grouped["neighbor_support"] + 4.0)
         )
 
-        grouped = grouped[grouped["num_ratings"] >= 15]
+        grouped = grouped[grouped["num_ratings"] >= self.min_votes]
         if grouped.empty:
             return self._empty_result()
 
@@ -225,19 +226,20 @@ class UserBasedEmbeddingsRecommender:
         user_ratings_df: Optional[pd.DataFrame] = None,
     ) -> pd.DataFrame:
         """
-        Recomendación pura basada en vecinos en embeddings.
+        Recomendación pura basada en vecinos.
         """
+        del user_id
+
         if top_n <= 0:
             return self._empty_result()
 
-        grouped = self.score_candidates(
-            user_id=user_id,
+        df = self.score_candidates(
+            user_id=None,
             seen_movie_ids=seen_movie_ids,
             candidate_ids=None,
             user_ratings_df=user_ratings_df,
         )
-
-        if grouped.empty:
+        if df.empty:
             return self._empty_result()
 
-        return grouped.head(top_n).reset_index(drop=True)
+        return df.head(top_n).reset_index(drop=True)

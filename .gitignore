@@ -222,3 +222,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Modelo Keras y artefactos
+
+artifacts/tf_model/
+artifacts/tensorflow/
+recommendation_state.json
+last_response.json

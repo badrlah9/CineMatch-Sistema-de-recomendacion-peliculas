@@ -1,39 +1,38 @@
+from __future__ import annotations
 
 """
 Orquestador central del sistema híbrido.
 
-Este módulo es el corazón del refactor:
-- combina contenido + colaborativo SVD + vecinos similares
-- deja de depender de que el usuario exista en MovieLens
-- añade rotación/diversidad para evitar respuestas idénticas
-- devuelve metadatos útiles para depuración y para la API
-"""
+Este módulo decide:
+- cuándo usar contenido puro
+- cuándo activar colaborativo temporal
+- cuándo sumar vecinos similares
+- cómo mezclar las señales
+- cómo rotar resultados sin romper la coherencia
 
-from __future__ import annotations
+Regla principal de esta versión:
+- los usuarios de tu producto se tratan siempre como externos al train
+- el `user_id` solo sirve para trazabilidad y estado de rotación
+- la colaboración sale de `user_ratings_df`
+"""
 
 import hashlib
 import json
 from copy import deepcopy
-from typing import Iterable, Mapping, Optional
+from typing import Mapping, Optional
 
-import numpy as np
 import pandas as pd
 
-from collaborative_svd import Recommender
-from content_based import compute_baseline_scores, normalize_user_preferences
-from user_based_embeddings import UserBasedEmbeddingsRecommender
+from cinematch.collaborative_tf import TensorFlowCollaborativeRecommender
+from cinematch.content_based import (
+    compute_baseline_scores,
+    normalize_genres,
+    normalize_user_preferences,
+)
+from cinematch.neighbor_embeddings import UserBasedEmbeddingsRecommender
 
 
-class HybridRecommender:
-    """
-    Flujo general del sistema:
-    1) contenido genera una shortlist sensible a gustos y calidad
-    2) SVD temporal puntúa la shortlist usando ratings del usuario
-    3) vecinos similares en embeddings aportan otra señal colaborativa
-    4) se mezclan scores con pesos adaptativos
-    5) se aplica rotación suave para no repetir exactamente lo mismo
-    """
-
+class HybridOrchestrator:
     REQUIRED_MOVIE_COLUMNS = {"movieId", "title", "genres", "rating", "num_ratings"}
     EMPTY_COLUMNS = [
         "movieId",
@@ -48,55 +47,67 @@ class HybridRecommender:
         "rotated_score",
         "rotation_penalty",
         "rotation_jitter",
+        "genre_score",
+        "rating_score",
+        "popularity_score",
     ]
 
     def __init__(
         self,
-        model_path: str,
+        collaborative_recommender: TensorFlowCollaborativeRecommender,
         ratings_df: pd.DataFrame,
         movies_df: pd.DataFrame,
         *,
         memory_decay: float = 0.80,
         max_history_signatures: int = 200,
+        min_catalog_votes: int = 10,
+        min_neighbor_votes: int = 15,
     ) -> None:
         missing = self.REQUIRED_MOVIE_COLUMNS - set(movies_df.columns)
         if missing:
-            raise ValueError(f"movies_df no tiene columnas necesarias: {sorted(missing)}")
+            raise ValueError(
+                f"movies_df no tiene columnas necesarias: {sorted(missing)}"
+            )
 
         self.ratings_df = ratings_df.copy()
         self.movies_df = movies_df.copy()
+        self.collaborative = collaborative_recommender
 
-        self.rec = Recommender(model_path)
-        self.emb_cf = UserBasedEmbeddingsRecommender(
-            self.rec,
-            self.ratings_df,
-            self.movies_df,
+        self.neighbors = UserBasedEmbeddingsRecommender(
+            collaborative_recommender=self.collaborative,
+            ratings_df=self.ratings_df,
+            movies_df=self.movies_df,
+            min_votes=min_neighbor_votes,
         )
 
         self.memory_decay = float(memory_decay)
         self.max_history_signatures = int(max_history_signatures)
+        self.min_catalog_votes = int(min_catalog_votes)
+        self.min_neighbor_votes = int(min_neighbor_votes)
 
-        # Memoria en runtime para rotación si el cliente no trae su propio estado.
+        # Memoria local en runtime para rotación si el cliente no manda estado.
         self._runtime_state = {"signatures": {}}
 
-    # --------------------------------------------------------
-    # Utilidades generales
-    # --------------------------------------------------------
-
-    def _normalize(self, col: pd.Series) -> pd.Series:
-        min_value = float(col.min()) if len(col) else 0.0
-        max_value = float(col.max()) if len(col) else 0.0
+    def _normalize(self, series: pd.Series) -> pd.Series:
+        """
+        Normaliza una columna a rango 0-1.
+        """
+        min_value = float(series.min()) if len(series) else 0.0
+        max_value = float(series.max()) if len(series) else 0.0
 
         if pd.isna(min_value) or pd.isna(max_value) or max_value == min_value:
-            return pd.Series([0.0] * len(col), index=col.index)
+            return pd.Series([0.0] * len(series), index=series.index)
 
-        return (col - min_value) / (max_value - min_value)
+        return (series - min_value) / (max_value - min_value)
 
     def _empty_result(self) -> pd.DataFrame:
         return pd.DataFrame(columns=self.EMPTY_COLUMNS)
 
     @staticmethod
     def _safe_user_ratings_df(user_ratings_df: Optional[pd.DataFrame]) -> pd.DataFrame:
+        """
+        Limpia y valida los ratings del usuario actual.
+        """
         if user_ratings_df is None:
             return pd.DataFrame(columns=["movieId", "rating"])
 
@@ -133,11 +144,14 @@ class HybridRecommender:
         user_preferences: Optional[Mapping[str, float]],
         shortlist_size: int = 300,
     ) -> pd.DataFrame:
+        """
+        Genera shortlist inicial por contenido.
+        """
         baseline_pool = compute_baseline_scores(
             movie_ids=candidate_ids,
             movies_df=self.movies_df,
             user_preferences=user_preferences,
-            min_votes=10,
+            min_votes=self.min_catalog_votes,
         )
 
         if baseline_pool.empty:
@@ -156,11 +170,15 @@ class HybridRecommender:
         has_preferences: bool,
     ) -> dict[str, float]:
         """
-        Ajusta pesos según señal disponible del usuario.
+        Política simple de pesos.
+
+        Cuanto menos historial tenga el usuario:
+        - más pesa contenido
+
+        Cuanto más historial real tenga:
+        - más pueden pesar colaborativo y vecinos
         """
         if num_user_ratings <= 0:
-            if has_preferences:
-                return {"svd": 0.00, "embedding": 0.00, "content": 1.00}
             return {"svd": 0.00, "embedding": 0.00, "content": 1.00}
 
         if num_user_ratings < 5:
@@ -177,10 +195,6 @@ class HybridRecommender:
             return {"svd": 0.45, "embedding": 0.30, "content": 0.25}
         return {"svd": 0.55, "embedding": 0.30, "content": 0.15}
 
-    # --------------------------------------------------------
-    # Diversidad y rotación de resultados
-    # --------------------------------------------------------
-
     def _make_request_signature(
         self,
         user_id: int | str | None,
@@ -189,6 +203,12 @@ class HybridRecommender:
         top_n: int,
         shortlist_size: int,
     ) -> str:
+        """
+        Genera una firma estable para detectar peticiones equivalentes.
+
+        El `user_id` se usa aquí solo como parte de la identidad de la petición,
+        no como usuario conocido del modelo.
+        """
         ratings_payload = (
             user_ratings_df[["movieId", "rating"]]
             .sort_values(["movieId", "rating"])
@@ -210,23 +230,30 @@ class HybridRecommender:
     def _deterministic_jitter(signature: str, movie_id: int, round_number: int) -> float:
         """
         Jitter pequeño, determinista y reproducible.
+
+        Sirve para:
+        - romper empates
+        - evitar órdenes exactamente idénticos
         """
         token = f"{signature}|{movie_id}|{round_number}".encode("utf-8")
         digest = hashlib.sha256(token).hexdigest()
         value = int(digest[:8], 16) / 0xFFFFFFFF
-        return (value - 0.5) * 0.03  # aprox. [-0.015, 0.015]
+        return (value - 0.5) * 0.03
 
     def _trim_state(self, state: dict) -> dict:
+        """
+        Limita el tamaño del estado histórico para que no crezca sin control.
+        """
         signatures = state.setdefault("signatures", {})
         if len(signatures) <= self.max_history_signatures:
             return state
 
-        # Conserva las firmas más recientes.
         ordered = sorted(
             signatures.items(),
             key=lambda item: item[1].get("request_count", 0),
             reverse=True,
         )[: self.max_history_signatures]
+
         state["signatures"] = dict(ordered)
         return state
 
@@ -239,22 +266,22 @@ class HybridRecommender:
         state: Optional[dict] = None,
     ) -> tuple[pd.DataFrame, dict, dict]:
         """
-        Penaliza suavemente películas recién servidas para que el top rote.
+        Penaliza suavemente películas recién servidas.
 
-        Importante:
-        - no las descarta para siempre
-        - la memoria decae con el tiempo
-        - con llamadas repetidas a la misma petición se van mezclando otras
+        Objetivo:
+        - no repetir siempre exactamente lo mismo
+        - no banear para siempre recomendaciones fuertes
+        - introducir variedad de forma gradual y reversible
         """
         if df.empty:
-            state = deepcopy(state) if state is not None else deepcopy(self._runtime_state)
-            return df, state, {"request_count": 0, "signature": signature}
+            working_state = deepcopy(state) if state is not None else deepcopy(self._runtime_state)
+            return df, working_state, {"request_count": 0, "signature": signature}
 
         working_state = deepcopy(state) if state is not None else deepcopy(self._runtime_state)
         signatures = working_state.setdefault("signatures", {})
         memory = signatures.setdefault(signature, {"request_count": 0, "exposures": {}})
 
-        # Decaimiento de memoria previa.
+        # Decaimiento: con el tiempo, lo ya mostrado pesa menos.
         exposures = {
             int(movie_id): float(value) * self.memory_decay
             for movie_id, value in memory.get("exposures", {}).items()
@@ -302,22 +329,23 @@ class HybridRecommender:
         }
         return rotated, working_state, rotation_meta
 
-    # --------------------------------------------------------
-    # Caminos del híbrido
-    # --------------------------------------------------------
-
     def _cold_start(
         self,
         user_preferences: Optional[Mapping[str, float]],
         top_n: int = 10,
     ) -> tuple[pd.DataFrame, dict]:
+        """
+        Camino de cold start:
+        - sin ratings del usuario
+        - solo contenido / catálogo
+        """
         candidate_ids = self.movies_df["movieId"].astype(int).tolist()
 
         baseline = compute_baseline_scores(
             movie_ids=candidate_ids,
             movies_df=self.movies_df,
             user_preferences=user_preferences,
-            min_votes=10,
+            min_votes=self.min_catalog_votes,
         )
 
         if baseline.empty:
@@ -339,29 +367,58 @@ class HybridRecommender:
             "weights": {"svd": 0.0, "embedding": 0.0, "content": 1.0},
         }
 
-    def recommend(
+    @staticmethod
+    def _matched_genres(
+        genres: object,
+        preferences: Mapping[str, float],
+    ) -> list[str]:
+        """
+        Devuelve géneros de la película que también aparecen en preferencias.
+        """
+        movie_genres = normalize_genres(genres)
+        return [genre for genre in movie_genres if genre in preferences]
+
+    def _to_records(
         self,
-        user_id: int | str | None,
-        user_preferences: Optional[Mapping[str, float]],
-        user_ratings_df: Optional[pd.DataFrame],
-        top_n: int = 10,
-        shortlist_size: int = 300,
-        recommendation_state: Optional[dict] = None,
-        apply_rotation: bool = True,
-    ) -> pd.DataFrame:
+        df: pd.DataFrame,
+        *,
+        preferences: Optional[Mapping[str, float]] = None,
+    ) -> list[dict]:
         """
-        Devuelve solo el DataFrame final.
+        Convierte el DataFrame interno a lista de diccionarios serializable.
         """
-        result = self.recommend_with_metadata(
-            user_id=user_id,
-            user_preferences=user_preferences,
-            user_ratings_df=user_ratings_df,
-            top_n=top_n,
-            shortlist_size=shortlist_size,
-            recommendation_state=recommendation_state,
-            apply_rotation=apply_rotation,
-        )
-        return result["recommendations_df"]
+        if df.empty:
+            return []
+
+        preferences = preferences or {}
+        payload = df.copy()
+
+        for column in [
+            "rating",
+            "num_ratings",
+            "baseline_score",
+            "svd_score",
+            "embedding_score",
+            "final_score",
+            "rotated_score",
+            "rotation_penalty",
+            "rotation_jitter",
+            "genre_score",
+            "rating_score",
+            "popularity_score",
+        ]:
+            if column in payload.columns:
+                payload[column] = payload[column].astype(float)
+
+        records = payload.to_dict(orient="records")
+        for record in records:
+            record["genres"] = normalize_genres(record.get("genres", []))
+            record["matched_genres"] = self._matched_genres(
+                genres=record.get("genres", []),
+                preferences=preferences,
+            )
+
+        return records
 
     def recommend_with_metadata(
         self,
@@ -374,7 +431,11 @@ class HybridRecommender:
         apply_rotation: bool = True,
     ) -> dict:
         """
-        Devuelve recomendaciones + metadatos + estado de rotación.
+        Ejecuta el flujo completo y devuelve:
+        - DataFrame interno
+        - recomendaciones serializadas
+        - metadata
+        - recommendation_state actualizado
         """
         if top_n <= 0:
             return {
@@ -383,27 +444,31 @@ class HybridRecommender:
                 "metadata": {
                     "path": "empty_top_n",
                     "weights": {"svd": 0.0, "embedding": 0.0, "content": 0.0},
+                    "external_user_only": True,
                 },
                 "recommendation_state": deepcopy(
                     recommendation_state if recommendation_state is not None else self._runtime_state
                 ),
             }
 
-        prefs = self._clean_preferences(user_preferences)
+        preferences = self._clean_preferences(user_preferences)
         safe_user_ratings = self._safe_user_ratings_df(user_ratings_df)
         seen_ids = set(safe_user_ratings["movieId"].tolist())
         num_user_ratings = int(len(safe_user_ratings))
 
         signature = self._make_request_signature(
             user_id=user_id,
-            user_preferences=prefs,
+            user_preferences=preferences,
             user_ratings_df=safe_user_ratings,
             top_n=top_n,
             shortlist_size=shortlist_size,
         )
 
+        # ----------------------------------------------------
+        # 1) COLD START: si el usuario no trae ratings
+        # ----------------------------------------------------
         if num_user_ratings == 0:
-            cold_df, cold_meta = self._cold_start(prefs, top_n=top_n)
+            cold_df, cold_meta = self._cold_start(preferences, top_n=top_n)
 
             if apply_rotation:
                 cold_df, updated_state, rotation_meta = self._apply_rotation(
@@ -421,55 +486,65 @@ class HybridRecommender:
             metadata = {
                 **cold_meta,
                 "num_user_ratings": num_user_ratings,
-                "num_preferences": len(prefs),
-                "trained_user_available": self.rec.has_trained_user(user_id),
+                "num_preferences": len(preferences),
+                "external_user_only": True,
                 "used_temp_profile": False,
+                "svd_candidates_scored": 0,
+                "embedding_candidates_scored": 0,
                 "rotation": rotation_meta,
             }
 
             return {
                 "recommendations_df": cold_df,
-                "recommendations": self._to_records(cold_df),
+                "recommendations": self._to_records(cold_df, preferences=preferences),
                 "metadata": metadata,
                 "recommendation_state": updated_state,
             }
 
+        # ----------------------------------------------------
+        # 2) Universo candidato: quitamos pelis ya vistas
+        # ----------------------------------------------------
         candidate_ids = [
             int(movie_id)
             for movie_id in self.movies_df["movieId"].astype(int).tolist()
             if int(movie_id) not in seen_ids
         ]
         if not candidate_ids:
-            empty_df = self._empty_result()
             return {
-                "recommendations_df": empty_df,
+                "recommendations_df": self._empty_result(),
                 "recommendations": [],
                 "metadata": {
                     "path": "no_candidates",
                     "weights": {"svd": 0.0, "embedding": 0.0, "content": 0.0},
                     "num_user_ratings": num_user_ratings,
-                    "num_preferences": len(prefs),
+                    "num_preferences": len(preferences),
+                    "external_user_only": True,
                 },
                 "recommendation_state": deepcopy(
                     recommendation_state if recommendation_state is not None else self._runtime_state
                 ),
             }
 
+        # ----------------------------------------------------
+        # 3) Shortlist por contenido
+        # ----------------------------------------------------
         baseline_pool = self._build_shortlist(
             candidate_ids=candidate_ids,
-            user_preferences=prefs,
+            user_preferences=preferences,
             shortlist_size=shortlist_size,
         )
+
         if baseline_pool.empty:
-            cold_df, cold_meta = self._cold_start(prefs, top_n=top_n)
+            cold_df, cold_meta = self._cold_start(preferences, top_n=top_n)
             return {
                 "recommendations_df": cold_df,
-                "recommendations": self._to_records(cold_df),
+                "recommendations": self._to_records(cold_df, preferences=preferences),
                 "metadata": {
                     **cold_meta,
                     "path": "fallback_cold_start_after_empty_shortlist",
                     "num_user_ratings": num_user_ratings,
-                    "num_preferences": len(prefs),
+                    "num_preferences": len(preferences),
+                    "external_user_only": True,
                 },
                 "recommendation_state": deepcopy(
                     recommendation_state if recommendation_state is not None else self._runtime_state
@@ -486,21 +561,30 @@ class HybridRecommender:
                 "rating",
                 "num_ratings",
                 "baseline_score",
+                "genre_score",
+                "rating_score",
+                "popularity_score",
             ]
         ].copy()
 
         df["svd_score"] = 0.0
         df["embedding_score"] = 0.0
 
-        svd_df = self.rec.score_candidates(
-            user_id=user_id,
+        # ----------------------------------------------------
+        # 4) Señal colaborativa temporal
+        # ----------------------------------------------------
+        svd_df = self.collaborative.score_candidates(
+            user_id=user_id,  # el módulo lo ignora a propósito
             candidate_ids=shortlist_ids,
             movies_df=self.movies_df,
             user_ratings_df=safe_user_ratings,
         )[["movieId", "svd_score"]]
 
-        emb_df = self.emb_cf.score_candidates(
-            user_id=user_id,
+        # ----------------------------------------------------
+        # 5) Vecinos similares históricos
+        # ----------------------------------------------------
+        emb_df = self.neighbors.score_candidates(
+            user_id=user_id,  # se ignora, se usa solo user_ratings_df
             seen_movie_ids=seen_ids,
             candidate_ids=shortlist_ids,
             user_ratings_df=safe_user_ratings,
@@ -519,15 +603,19 @@ class HybridRecommender:
         df["svd_score"] = df["svd_score"].fillna(0.0).astype(float)
         df["embedding_score"] = df["embedding_score"].fillna(0.0).astype(float)
 
+        # Normalizamos solo las señales colaborativas, no el baseline.
         if df["svd_score"].nunique() > 1:
             df["svd_score"] = self._normalize(df["svd_score"])
 
         if df["embedding_score"].nunique() > 1:
             df["embedding_score"] = self._normalize(df["embedding_score"])
 
+        # ----------------------------------------------------
+        # 6) Mezcla final
+        # ----------------------------------------------------
         weights = self._get_weights(
             num_user_ratings=num_user_ratings,
-            has_preferences=bool(prefs),
+            has_preferences=bool(preferences),
         )
 
         df["final_score"] = (
@@ -538,6 +626,9 @@ class HybridRecommender:
 
         df = df.sort_values("final_score", ascending=False).reset_index(drop=True)
 
+        # ----------------------------------------------------
+        # 7) Rotación / diversidad
+        # ----------------------------------------------------
         if apply_rotation:
             df, updated_state, rotation_meta = self._apply_rotation(
                 df,
@@ -556,13 +647,13 @@ class HybridRecommender:
             rotation_meta = {"signature": signature, "request_count": 1, "tracked_movies": 0}
 
         metadata = {
-            "path": "hybrid_content_plus_temp_svd_plus_neighbors",
+            "path": "hybrid_content_plus_temp_profile_plus_neighbors",
             "weights": weights,
             "num_user_ratings": num_user_ratings,
-            "num_preferences": len(prefs),
+            "num_preferences": len(preferences),
             "candidate_pool_size": len(candidate_ids),
             "shortlist_size": len(shortlist_ids),
-            "trained_user_available": self.rec.has_trained_user(user_id),
+            "external_user_only": True,
             "used_temp_profile": True,
             "svd_candidates_scored": int(len(svd_df)),
             "embedding_candidates_scored": int(len(emb_df)),
@@ -571,37 +662,10 @@ class HybridRecommender:
 
         return {
             "recommendations_df": df.reset_index(drop=True),
-            "recommendations": self._to_records(df.reset_index(drop=True)),
+            "recommendations": self._to_records(df.reset_index(drop=True), preferences=preferences),
             "metadata": metadata,
             "recommendation_state": updated_state,
         }
-
-    # --------------------------------------------------------
-    # Serialización
-    # --------------------------------------------------------
-
-    @staticmethod
-    def _to_records(df: pd.DataFrame) -> list[dict]:
-        if df.empty:
-            return []
-
-        payload = df.copy()
-
-        for col in [
-            "rating",
-            "num_ratings",
-            "baseline_score",
-            "svd_score",
-            "embedding_score",
-            "final_score",
-            "rotated_score",
-            "rotation_penalty",
-            "rotation_jitter",
-        ]:
-            if col in payload.columns:
-                payload[col] = payload[col].astype(float)
-
-        return payload.to_dict(orient="records")
 
     def recommend_payload(
         self,
@@ -615,9 +679,7 @@ class HybridRecommender:
         include_metadata: bool = True,
     ) -> dict | list[dict]:
         """
-        Devuelve un payload listo para FastAPI / JSON.
-
-        Si `include_metadata=False`, devuelve solo la lista de recomendaciones.
+        Versión lista para serializar en servicio o API.
         """
         result = self.recommend_with_metadata(
             user_id=user_id,

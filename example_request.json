@@ -1,0 +1,19 @@
+{
+  "user_id": 999002,
+  "user_preferences": {
+    "Sci-Fi": 5,
+    "Thriller": 4,
+    "Drama": 2
+  },
+  "ratings": [
+    { "movieId": 296, "rating": 5.0 },
+    { "movieId": 318, "rating": 4.5 },
+    { "movieId": 593, "rating": 4.0 },
+    { "movieId": 2571, "rating": 5.0 }
+  ],
+  "top_n": 10,
+  "shortlist_size": 300,
+  "recommendation_state": null,
+  "apply_rotation": true,
+  "include_debug_scores": true
+}

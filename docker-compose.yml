@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  cinematch-ml:
+    build: .
+    container_name: cinematch-ml
+    ports:
+      - "8000:8000"
+    environment:
+      CINEMATCH_MOVIES_PATH: /app/data/processed/movies_clean.csv
+      CINEMATCH_RATINGS_PATH: /app/data/processed/ratings_clean.csv
+      CINEMATCH_MODEL_PATH: /app/artifacts/tensorflow/collaborative_model.keras
+      CINEMATCH_MAPPINGS_PATH: /app/artifacts/tensorflow/mappings.pkl
+      CINEMATCH_METADATA_PATH: /app/artifacts/tensorflow/model_metadata.json
+    volumes:
+      - ./data:/app/data
+      - ./artifacts:/app/artifacts
