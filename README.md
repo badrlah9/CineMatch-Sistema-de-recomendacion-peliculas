@@ -195,7 +195,7 @@ Cargados 100000 ratings
 
 ### Paso 7 — Obtener el modelo entrenado
 
-Por su tamaño, se descarga en el siguiente enlace, descarga los tres archivos y colócalos en `artifacts/tf_model/`:
+Por su tamaño, se descarga en el siguiente enlace, descarga los tres archivos y colócalos en `artifacts/tensorflow/`:
 https://drive.google.com/drive/folders/1Tq14PoZZq4UTBxqIZz-2jcanA9PMf5xx?usp=drive_link
 
 ```
