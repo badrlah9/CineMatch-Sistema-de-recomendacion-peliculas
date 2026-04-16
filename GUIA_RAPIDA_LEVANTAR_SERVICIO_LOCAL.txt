@@ -5,6 +5,9 @@ GUÍA RÁPIDA PARA LEVANTAR EL SERVICIO LOCAL DE CINE MATCH
 **Tenemos que tener el modelo descargado, son 3 ficheros, deben estar ubicados en "artifacts/tensorflow/..."
 
 
+descarga: https://drive.google.com/drive/folders/1Tq14PoZZq4UTBxqIZz-2jcanA9PMf5xx?usp=sharing
+
+
 
 
 Una vez tengas el proyecto en local, sigue estos pasos desde la raíz del repositorio.
