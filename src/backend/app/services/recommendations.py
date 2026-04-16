@@ -18,19 +18,61 @@ TOP_K = 10   # número de recomendaciones a devolver
 
 # 1. ML externo
 
-async def _fetch_from_ml_service(user_id: int, k: int) -> Optional[list[dict]]:
-    # Llama a POST {ML_SERVICE_URL}/recommend → {"recommendations": [{"movie_id": int, "score": float}]}
-    # Devuelve None si el servicio no está disponible.
+def _get_user_preferences(db: Session, user_id: int) -> dict[str, float]:
+    """Devuelve las preferencias de género del usuario como {nombre_género: score}."""
+    sql = text("""
+        SELECT g.name, ugp.score
+        FROM   user_genre_preferences ugp
+        JOIN   genres g ON g.genre_id = ugp.genre_id
+        WHERE  ugp.user_id = :user_id
+    """)
+    rows = db.execute(sql, {"user_id": user_id}).fetchall()
+    return {row.name: float(row.score) for row in rows}
+
+
+def _get_user_ratings(db: Session, user_id: int) -> list[dict]:
+    """Devuelve el historial de ratings del usuario como lista de {movieId, rating}."""
+    sql = text("""
+        SELECT movie_id AS "movieId", rating
+        FROM   ratings
+        WHERE  user_id = :user_id
+        LIMIT  500
+    """)
+    rows = db.execute(sql, {"user_id": user_id}).fetchall()
+    return [{"movieId": row.movieId, "rating": float(row.rating)} for row in rows]
+
+
+async def _fetch_from_ml_service(
+    user_id: int,
+    k: int,
+    user_preferences: dict[str, float],
+    user_ratings: list[dict],
+) -> Optional[list[dict]]:
+    """Llama al servicio ML de Alejandro (POST /v1/recommendations).
+    Devuelve lista de {movie_id, score} o None si el servicio no está disponible."""
     if not settings.ML_SERVICE_URL:
         return None
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        payload = {
+            "user_id": user_id,
+            "user_preferences": user_preferences,
+            "ratings": user_ratings,
+            "top_n": k,
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
-                f"{settings.ML_SERVICE_URL}/recommend",
-                json={"user_id": user_id, "k": k}
+                f"{settings.ML_SERVICE_URL}/v1/recommendations",
+                json=payload,
             )
             if resp.status_code == 200:
-                return resp.json().get("recommendations")
+                data = resp.json()
+                return [
+                    {
+                        "movie_id": r["movieId"],
+                        "score":    r["scores"]["final"],
+                    }
+                    for r in data.get("recommendations", [])
+                ]
     except Exception:
         pass
     return None
@@ -113,7 +155,9 @@ async def get_recommendations(
     raw: list[dict] = []
 
     # 1. Modelo ML externo
-    ml_result = await _fetch_from_ml_service(user_id, k)
+    user_preferences = _get_user_preferences(db, user_id)
+    user_ratings     = _get_user_ratings(db, user_id)
+    ml_result = await _fetch_from_ml_service(user_id, k, user_preferences, user_ratings)
     if ml_result:
         # El modelo devuelve movie_id + score; enriquecemos desde la BD
         movie_ids = [r["movie_id"] for r in ml_result]

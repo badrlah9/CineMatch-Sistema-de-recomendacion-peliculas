@@ -10,6 +10,12 @@ data/processed/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 
+# artifacts del modelo ML (ficheros grandes, no van a git)
+artifacts/tf_model/*.keras
+artifacts/tf_model/*.pkl
+artifacts/tf_model/*.json
+!artifacts/tf_model/.gitkeep
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

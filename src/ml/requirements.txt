@@ -1,0 +1,46 @@
+# CineMatch - dependencias de runtime + entrenamiento + API
+#
+# Este fichero está pensado para:
+# - entrenar el modelo colaborativo TensorFlow/Keras
+# - ejecutar el servicio FastAPI
+# - usar el simulador local / HTTP
+# - construir una imagen Docker sin arrastrar dependencias de notebook
+#
+# Nota:
+# - Docker no necesita un paquete Python específico. Le basta con este fichero.
+# - He dejado rangos razonables en vez de pin absoluto para reducir conflictos.
+# - Si quieres entorno de notebook, usa además requirements-dev.txt.
+
+# =========================================================
+# 1. Núcleo ML / recomendador
+# =========================================================
+tensorflow>=2.18,<2.22
+scikit-learn>=1.5,<1.9
+numpy>=1.26,<3.0
+pandas>=2.2,<3.1
+pyarrow>=17,<24
+
+# =========================================================
+# 2. API / servicio
+# =========================================================
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+pydantic>=2.8,<3.0
+
+# =========================================================
+# 3. Cliente / utilidades del simulador
+# =========================================================
+requests>=2.32,<3.0
+
+# =========================================================
+# 4. Compatibilidad típica de sklearn / pandas
+# =========================================================
+scipy>=1.13,<2.0
+joblib>=1.4,<2.0
+threadpoolctl>=3.5,<4.0
+
+# =========================================================
+# 5. Utilidades generales
+# =========================================================
+python-dateutil>=2.9,<3.0
+typing_extensions>=4.12,<5.0

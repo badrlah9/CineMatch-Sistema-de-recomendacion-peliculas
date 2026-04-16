@@ -7,7 +7,7 @@ from app.config   import get_settings
 from app.database import engine, get_db
 from app.models   import Genre
 from app.schemas  import GenreOut
-from app.routers  import auth, recommendations, movies, preferences
+from app.routers  import auth, recommendations, movies, preferences, ratings
 
 settings = get_settings()
 
@@ -32,6 +32,7 @@ app.include_router(auth.router)
 app.include_router(recommendations.router)
 app.include_router(movies.router)
 app.include_router(preferences.router)
+app.include_router(ratings.router)
 
 
 # Géneros

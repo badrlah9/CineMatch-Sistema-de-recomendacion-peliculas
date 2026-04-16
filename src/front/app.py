@@ -98,6 +98,7 @@ def _fetch_movies(token: str) -> list[dict]:
 def _to_card(rec: dict) -> dict:
     title = rec.get("title", "")
     return {
+        "movie_id": rec.get("movie_id"),
         "title":    _clean_title(title),
         "year":     _extract_year(title),
         "genre":    ", ".join(rec.get("genres", [])),
@@ -140,7 +141,33 @@ def login_screen():
         ''', unsafe_allow_html=True)
 
 
+def _fetch_preferences(token: str) -> list[dict]:
+    try:
+        resp = requests.get(
+            f"{API_URL}/users/me/preferences",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    except requests.RequestException:
+        pass
+    return []
+
+
 def dashboard():
+    if st.sidebar.button("Actualizar"):
+        st.rerun()
+
+    with st.sidebar.expander("🎭 Mis gustos"):
+        prefs = _fetch_preferences(st.session_state.token)
+        if prefs:
+            for p in prefs:
+                stars = "★" * round(p["score"]) + "☆" * (5 - round(p["score"]))
+                st.markdown(f"**{p['genre_name']}** {stars}")
+        else:
+            st.caption("No tienes géneros guardados.")
+
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.authenticated = False
         st.session_state.token = None
@@ -205,6 +232,8 @@ def dashboard():
 
         <script>
             const movies = __MOVIES_DATA__;
+            const AUTH_TOKEN = "__AUTH_TOKEN__";
+            const API_URL    = "__API_URL__";
             let currentIndex = 0;
 
             function renderCard() {
@@ -260,10 +289,29 @@ def dashboard():
                     </div>`;
             }
 
+            function saveRating(movieId, rating) {
+                if (!AUTH_TOKEN || !movieId) return;
+                fetch(`${API_URL}/ratings`, {
+                    method:  'POST',
+                    headers: {
+                        'Content-Type':  'application/json',
+                        'Authorization': `Bearer ${AUTH_TOKEN}`,
+                    },
+                    body: JSON.stringify({ movie_id: movieId, rating: rating }),
+                }).catch(() => {});  // fire-and-forget
+            }
+
             function toggleFlip(e) { e.stopPropagation(); document.getElementById('flip-inner').classList.toggle('flipped'); }
+
             function handleAction(type) {
+                const movie   = movies[currentIndex];
                 const wrapper = document.getElementById('card-wrapper');
                 document.getElementById('flip-inner').classList.remove('flipped');
+
+                // Guardar rating si es like o dislike
+                if (type === 'like')    saveRating(movie.movie_id, 5.0);
+                if (type === 'dislike') saveRating(movie.movie_id, 1.0);
+
                 setTimeout(() => {
                     wrapper.classList.add(type === 'dislike' ? 'swipe-left' : 'swipe-right');
                     setTimeout(() => {
@@ -280,6 +328,8 @@ def dashboard():
     """
 
     html_code = html_code.replace("__MOVIES_DATA__", movies_json)
+    html_code = html_code.replace("__AUTH_TOKEN__", st.session_state.token or "")
+    html_code = html_code.replace("__API_URL__", API_URL)
     components.html(html_code, height=920)
 
 
