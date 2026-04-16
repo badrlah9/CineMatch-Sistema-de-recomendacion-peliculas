@@ -223,9 +223,39 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Modelos y artefactos entrenados
-artifacts/tf_model/
-artifacts/tensorflow/
+# =========================
+# Artefactos de modelos
+# =========================
 
+# Mantener la carpeta, ignorar su contenido
+artifacts/tf_model/*
+!artifacts/tf_model/.gitkeep
+
+artifacts/tensorflow/*
+!artifacts/tensorflow/.gitkeep
+
+# =========================
+# Ficheros locales de prueba
+# =========================
 recommendation_state.json
 last_response.json
+
+# =========================
+# Cachés / compilados Python
+# =========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# =========================
+# Entornos virtuales
+# =========================
+environment/venv/
+venv/
+.venv/
+
+# =========================
+# Jupyter
+# =========================
+.ipynb_checkpoints/
