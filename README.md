@@ -199,7 +199,7 @@ Por su tamaño, se descarga en el siguiente enlace, descarga los tres archivos y
 https://drive.google.com/drive/folders/1Tq14PoZZq4UTBxqIZz-2jcanA9PMf5xx?usp=drive_link
 
 ```
-artifacts/tf_model/
+artifacts/tensorflow/
 ├── collaborative_model.keras
 ├── mappings.pkl
 └── model_metadata.json
