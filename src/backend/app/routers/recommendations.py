@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -44,13 +46,14 @@ async def my_recommendations(
         k       = k,
     )
 
-    # Enriquecer con TMDB de forma asíncrona si se solicita
     if enrich_tmdb:
-        for item in result.recommendations:
+        async def _enrich(item):
             if item.tmdb_id:
                 tmdb_data = await fetch_tmdb_data(item.tmdb_id)
-                item.poster_url   = tmdb_data.get("poster_url")
-                item.overview     = tmdb_data.get("overview")
+                item.poster_url = tmdb_data.get("poster_url")
+                item.overview   = tmdb_data.get("overview")
+
+        await asyncio.gather(*[_enrich(item) for item in result.recommendations])
 
     return result
 
@@ -84,11 +87,13 @@ async def popular_movies(
     ]
 
     if enrich_tmdb:
-        for item in items:
+        async def _enrich_pop(item):
             if item.tmdb_id:
                 tmdb_data = await fetch_tmdb_data(item.tmdb_id)
                 item.poster_url = tmdb_data.get("poster_url")
                 item.overview   = tmdb_data.get("overview")
+
+        await asyncio.gather(*[_enrich_pop(item) for item in items])
 
     return RecommendationsOut(
         user_id         = 0,

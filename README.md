@@ -305,3 +305,88 @@ Con el backend en marcha:
 - Los archivos `.env` **nunca** se suben al repositorio (están en `.gitignore`)
 - Los datos de `data/` y los artefactos de `artifacts/tf_model/` tampoco se suben por su tamaño
 - Si cambias el código del backend o del ML service, reinicia el servidor correspondiente (no tienen `--reload` por defecto excepto el backend en desarrollo)
+
+---
+
+## Trazabilidad de módulos
+
+Esta tabla mapea cada módulo descrito en la documentación (`docs/fase1/`) a su ubicación exacta en el repositorio.
+
+### Pipeline de datos
+
+| Módulo (PDF) | Archivo | Descripción |
+|---|---|---|
+| Ingesta y limpieza | [src/pipeline/ingest.py](src/pipeline/ingest.py) | Lee MovieLens 32M de `data/raw/`, filtra y genera CSVs limpios en `data/processed/` |
+| Carga a PostgreSQL | [src/backend/scripts/load_data.py](src/backend/scripts/load_data.py) | Inserta los CSVs procesados en la base de datos; soporta `--sample` (100k ratings) |
+| Schema de la base de datos | [src/backend/cinematch_schema.sql](src/backend/cinematch_schema.sql) | DDL completo: tablas, índices, constraints (PostgreSQL) |
+| Exploración de datos | [src/pipeline/notebooks/eda.ipynb](src/pipeline/notebooks/eda.ipynb) | Jupyter con estadísticas, distribuciones y calidad de datos |
+
+### Backend (FastAPI · puerto 8000)
+
+| Módulo (PDF) | Archivo | Descripción |
+|---|---|---|
+| Punto de entrada API | [src/backend/app/main.py](src/backend/app/main.py) | Crea la app FastAPI, CORS, monta todos los routers |
+| Configuración | [src/backend/app/config.py](src/backend/app/config.py) | Variables de entorno: `DATABASE_URL`, JWT, `TMDB_API_KEY`, `ML_SERVICE_URL` |
+| Conexión a base de datos | [src/backend/app/database.py](src/backend/app/database.py) | Engine SQLAlchemy + `get_db()` como dependency de FastAPI |
+| Modelos ORM | [src/backend/app/models.py](src/backend/app/models.py) | Tablas: `Genre`, `Movie`, `Link`, `Rating`, `User`, `UserGenrePreference` |
+| Esquemas de validación | [src/backend/app/schemas.py](src/backend/app/schemas.py) | Pydantic: `UserRegister`, `Token`, `MovieOut`, `RecommendationsOut`, etc. |
+| Autenticación JWT | [src/backend/app/routers/auth.py](src/backend/app/routers/auth.py) | `POST /auth/register` (bcrypt) y `POST /auth/login` (JWT) |
+| Validación de token | [src/backend/app/dependencies.py](src/backend/app/dependencies.py) | `get_current_user()` — valida JWT y devuelve el usuario autenticado |
+| Búsqueda de películas | [src/backend/app/routers/movies.py](src/backend/app/routers/movies.py) | `GET /movies/search` (pg\_trgm), `GET /movies/{id}` con enriquecimiento TMDB |
+| Preferencias de género | [src/backend/app/routers/preferences.py](src/backend/app/routers/preferences.py) | CRUD `GET/POST/PUT /users/me/preferences` |
+| Valoraciones | [src/backend/app/routers/ratings.py](src/backend/app/routers/ratings.py) | `POST /ratings` — guarda like/dislike del usuario autenticado |
+| Endpoint de recomendaciones | [src/backend/app/routers/recommendations.py](src/backend/app/routers/recommendations.py) | `GET /recommendations/me` — orquesta las 3 capas de fallback |
+| Lógica de recomendaciones | [src/backend/app/services/recommendations.py](src/backend/app/services/recommendations.py) | Llama al servicio ML, fallback a géneros, fallback a popularidad bayesiana |
+| Integración TMDB | [src/backend/app/services/tmdb.py](src/backend/app/services/tmdb.py) | Enriquece cada película con póster, sinopsis y fecha desde la API de TMDB |
+
+### Servicio ML (TensorFlow · puerto 8001)
+
+| Módulo (PDF) | Archivo | Descripción |
+|---|---|---|
+| Punto de entrada ML | [src/ml/fastapi_app.py](src/ml/fastapi_app.py) | API FastAPI del servicio ML: `GET /health`, `POST /v1/recommendations` |
+| Servicio de alto nivel | [src/ml/cinematch/service.py](src/ml/cinematch/service.py) | `CineMatchService`: carga datos y modelos, expone `get_recommendations()` |
+| Orquestador híbrido | [src/ml/cinematch/hybrid_orchestrator.py](src/ml/cinematch/hybrid_orchestrator.py) | Mezcla señales colaborativo + contenido + vecinos; gestiona rotación sin repetir |
+| Filtrado colaborativo | [src/ml/cinematch/collaborative_tf.py](src/ml/cinematch/collaborative_tf.py) | `TensorFlowCollaborativeRecommender`: inferencia sobre el modelo Keras entrenado |
+| Filtrado por contenido | [src/ml/cinematch/content_based.py](src/ml/cinematch/content_based.py) | Scoring por género + popularidad bayesiana (fallback sin historial) |
+| Usuarios similares | [src/ml/cinematch/neighbor_embeddings.py](src/ml/cinematch/neighbor_embeddings.py) | Cosine similarity sobre embeddings históricos para encontrar vecinos cercanos |
+| Configuración ML | [src/ml/cinematch/config.py](src/ml/cinematch/config.py) | Rutas a artefactos e hiperparámetros (`top_n`, `min_catalog_votes`, etc.) |
+| Esquemas ML | [src/ml/cinematch/schemas.py](src/ml/cinematch/schemas.py) | Pydantic: `RecommendationRequest`, `RecommendationResponse`, `MovieRecommendation` |
+| I/O de artefactos | [src/ml/cinematch/io_utils.py](src/ml/cinematch/io_utils.py) | Carga CSV/Parquet, JSON y Pickle de forma resiliente |
+| Entrenamiento del modelo | [src/ml/cinematch/training/train_tensorflow_model.py](src/ml/cinematch/training/train_tensorflow_model.py) | Entrena Matrix Factorization en Keras; genera `.keras`, `mappings.pkl` y `model_metadata.json` |
+| Migración PyTorch → Keras | [src/ml/cinematch/training/convert_pytorch_to_keras.py](src/ml/cinematch/training/convert_pytorch_to_keras.py) | Convierte checkpoints `.pth` a formato Keras preservando pesos y mappings |
+
+### Frontend (Streamlit · puerto 8501)
+
+| Módulo (PDF) | Archivo | Descripción |
+|---|---|---|
+| Dashboard principal | [src/front/app.py](src/front/app.py) | Muestra recomendaciones, like/dislike, botón actualizar y sidebar de gustos |
+| Login y registro | [src/front/pages/Login.py](src/front/pages/Login.py) | Formulario de login/registro; almacena JWT en `session_state` |
+
+---
+
+## Decisiones técnicas y deuda pendiente
+
+### Decisiones técnicas
+
+| Decisión | Alternativa descartada | Motivo |
+|---|---|---|
+| TensorFlow/Keras para Matrix Factorization | PyTorch | TF tiene soporte nativo para `.keras` con serialización de capas custom; se migró desde un checkpoint PyTorch inicial |
+| FastAPI en dos servicios separados (backend + ML) | Un único servicio monolítico | Permite escalar el servicio ML de forma independiente y reiniciarlo sin afectar la API principal |
+| PostgreSQL con pg\_trgm para búsqueda | Elasticsearch / búsqueda en memoria | Simplicidad operacional; pg\_trgm es suficiente para el volumen del catálogo (~87k películas) |
+| Fallback en 3 capas (ML → género → popularidad) | Devolver error si ML no responde | Garantiza que el usuario siempre recibe recomendaciones aunque el servicio ML esté caído |
+| Popularidad bayesiana como último fallback | Popularidad simple por número de ratings | Evita sesgo hacia películas con muchos pero malos ratings; balancea votos y media |
+| Streamlit para el frontend | React / Next.js | Reduce tiempo de desarrollo al ser Python puro; suficiente para una demo funcional |
+| `.env` por servicio (backend y ML) | Configuración centralizada | Permite desplegar cada servicio en entornos distintos sin acoplar sus configuraciones |
+| Artefactos ML fuera del repositorio (Google Drive) | Git LFS | El modelo pesa >200 MB; Git LFS tiene costes en repositorios públicos |
+
+### Deuda técnica pendiente
+
+| Área | Descripción | Prioridad |
+|---|---|---|
+| Tests | No hay tests automatizados (unitarios ni de integración) en ninguno de los tres servicios | Alta |
+| Docker Compose completo | Existe `docker-compose.yml` en el ML service pero no orquesta los tres servicios juntos | Alta |
+| Reentrenamiento incremental | El modelo se entrena una sola vez; no hay pipeline para actualizar con nuevos ratings de usuarios | Media |
+| Autenticación en el servicio ML | El endpoint `POST /v1/recommendations` no requiere autenticación; cualquiera en la red puede llamarlo | Media |
+| Paginación en recomendaciones | La API devuelve siempre un bloque fijo de N películas; no hay cursor ni offset | Baja |
+| Caché de respuestas TMDB | Cada llamada a `/recommendations/me` consulta TMDB en tiempo real; sin caché local | Baja |
+| Variables de entorno en el frontend | Las URLs del backend están hardcodeadas en `app.py`; deberían venir de variables de entorno | Baja |

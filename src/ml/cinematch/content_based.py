@@ -147,14 +147,23 @@ def compute_genre_score(
     - interpretable
     - menos sesgada hacia películas de un solo género
     """
-    normalized_preferences = normalize_user_preferences(user_preferences)
-    normalized_genres = normalize_genres(genres)
+    # Las preferencias llegan ya normalizadas a escala 0-1 desde compute_baseline_scores.
+    # Solo bajamos las claves a minúsculas; no volver a normalizar los valores.
+    if not user_preferences:
+        return 0.0
+    preferences_norm = {str(k).strip().lower(): float(v) for k, v in user_preferences.items()}
 
-    if not normalized_preferences or not normalized_genres:
+    normalized_genres = normalize_genres(genres)
+    if not preferences_norm or not normalized_genres:
+        return 0.0
+
+    # Géneros con < 2 estrellas (0.4 en escala 0-1) se ignoran: el usuario no los quiere.
+    active_preferences = {k: v for k, v in preferences_norm.items() if v >= 0.4}
+    if not active_preferences:
         return 0.0
 
     values = np.array(
-        [normalized_preferences.get(genre, 0.0) for genre in normalized_genres],
+        [active_preferences.get(genre, 0.0) for genre in normalized_genres],
         dtype=float,
     )
     matched_values = values[values > 0]
@@ -165,7 +174,7 @@ def compute_genre_score(
     max_score = float(np.max(matched_values))
     mean_score = float(np.mean(matched_values))
     coverage_in_movie = float(len(matched_values) / len(normalized_genres))
-    coverage_in_preferences = float(len(matched_values) / max(len(normalized_preferences), 1))
+    coverage_in_preferences = float(len(matched_values) / max(len(active_preferences), 1))
     multi_match_bonus = min(len(matched_values) / 3.0, 1.0)
 
     score = (
@@ -268,7 +277,12 @@ def compute_baseline_scores(
         if not filtered.empty:
             df = filtered
 
-    preferences = normalize_user_preferences(user_preferences)
+    # Las preferencias llegan ya normalizadas a 0-1 desde el orquestador.
+    # Solo normalizar si vienen en escala cruda (> 1.0); de lo contrario usar directamente.
+    if user_preferences and any(float(v) > 1.0 for v in user_preferences.values()):
+        preferences = normalize_user_preferences(user_preferences)
+    else:
+        preferences = {str(k).strip().lower(): float(v) for k, v in (user_preferences or {}).items()}
 
     if preferences:
         df["genre_score"] = df["genres"].apply(
@@ -285,9 +299,9 @@ def compute_baseline_scores(
 
     if preferences:
         df["baseline_score"] = (
-            0.45 * df["genre_score"]
-            + 0.35 * df["rating_score"]
-            + 0.20 * df["popularity_score"]
+            0.65 * df["genre_score"]
+            + 0.25 * df["rating_score"]
+            + 0.10 * df["popularity_score"]
         )
     else:
         df["baseline_score"] = (
