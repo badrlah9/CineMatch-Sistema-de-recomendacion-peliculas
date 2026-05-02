@@ -244,6 +244,13 @@ def main() -> None:
     engine = get_engine()
     print("  BD       : conectada")
 
+    with engine.connect() as conn:
+        total = conn.execute(text("SELECT COUNT(*) FROM ratings")).scalar()
+
+    if total > 1000 and not args.truncate:
+        print("⚠️ Base de datos ya cargada. Saltando seed.")
+        return
+
     if args.truncate:
         truncate_tables(engine)
 
