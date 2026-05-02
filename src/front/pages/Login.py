@@ -1,7 +1,9 @@
+import os
+
 import requests
 import streamlit as st
 
-API_URL = "http://localhost:8000"
+API_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
 # Mapeo de nombres en español a los nombres en inglés que usa la base de datos (MovieLens)
 GENRE_MAP = {

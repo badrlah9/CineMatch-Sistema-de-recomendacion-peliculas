@@ -1,11 +1,12 @@
 import json
+import os
 import re
 
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
 
-API_URL = "http://localhost:8000"
+API_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
 # 1. Configuración de página
 st.set_page_config(page_title="Cinematch - TFM", page_icon="🎬", layout="centered")
@@ -158,6 +159,9 @@ def _fetch_preferences(token: str) -> list[dict]:
 def dashboard():
     if st.sidebar.button("Actualizar"):
         st.rerun()
+
+    if st.sidebar.button("👤 Mi Perfil"):
+        st.switch_page("pages/Dashboard.py")
 
     with st.sidebar.expander("🎭 Mis gustos"):
         prefs = _fetch_preferences(st.session_state.token)

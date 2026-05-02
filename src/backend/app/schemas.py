@@ -116,6 +116,17 @@ class RecommendationsOut(BaseModel):
     recommendations: list[RecommendationItem]
 
 
+# Ratings
+
+class RatingOut(BaseModel):
+    movie_id: int
+    title:    str
+    rating:   float
+    rated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 # Health
 
 class HealthOut(BaseModel):

@@ -6,8 +6,35 @@ from pydantic import BaseModel, field_validator
 from app.database    import get_db
 from app.dependencies import get_current_user
 from app.models      import User
+from app.schemas     import RatingOut
 
 router = APIRouter(prefix="/ratings", tags=["Ratings"])
+
+
+@router.get("/me", response_model=list[RatingOut], summary="Ver mis valoraciones")
+def get_my_ratings(
+    current_user: User    = Depends(get_current_user),
+    db:           Session = Depends(get_db),
+):
+    rows = db.execute(
+        text("""
+            SELECT r.movie_id, m.title, r.rating::float AS rating, r.rated_at
+            FROM   ratings r
+            JOIN   movies m ON m.movie_id = r.movie_id
+            WHERE  r.user_id = :uid
+            ORDER  BY r.rated_at DESC
+        """),
+        {"uid": current_user.user_id},
+    ).fetchall()
+    return [
+        RatingOut(
+            movie_id=row.movie_id,
+            title=row.title,
+            rating=row.rating,
+            rated_at=row.rated_at,
+        )
+        for row in rows
+    ]
 
 
 class RatingIn(BaseModel):
