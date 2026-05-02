@@ -6,7 +6,7 @@ import requests
 import streamlit as st
 import streamlit.components.v1 as components
 
-API_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
+API_URL = os.environ.get("BACKEND_URL", "http://backend:8000")
 
 # 1. Configuración de página
 st.set_page_config(page_title="Cinematch - TFM", page_icon="🎬", layout="centered")

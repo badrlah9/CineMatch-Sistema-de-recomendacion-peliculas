@@ -1,0 +1,68 @@
+services:
+  db:
+    image: postgres:16
+    container_name: cinematch-db
+    environment:
+      POSTGRES_USER: cinematch_user
+      POSTGRES_PASSWORD: 1324
+      POSTGRES_DB: cinematch
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./src/backend/cinematch_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+
+  ml:
+    build:
+      context: ./src/ml
+    container_name: cinematch-ml
+    env_file:
+      - ./src/ml/.env
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./data:/app/data
+      - ./artifacts:/app/artifacts
+
+
+  seed:
+    build:
+      context: ./src/backend
+    container_name: cinematch-seed
+    env_file:
+      - ./src/backend/.env
+    depends_on:
+      - db
+    volumes:
+      - ./data:/app/data
+    command: >
+      sh -c "sleep 8 &&
+             python scripts/load_data.py --data-dir /app/data/processed"
+
+  backend:
+    build:
+      context: ./src/backend
+    container_name: cinematch-backend
+    env_file:
+      - ./src/backend/.env
+    depends_on:
+      - db
+      - ml
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  front:
+    build:
+      context: ./src/front
+    container_name: cinematch-front
+    environment:
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      - backend
+    ports:
+      - "8501:8501"
+
+volumes:
+  postgres_data:
