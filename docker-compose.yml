@@ -1,7 +1,22 @@
 services:
+  prepare-data:
+    build:
+      context: ./src/pipeline
+    container_name: cinematch-prepare-data
+    restart: "no"
+    volumes:
+      - ./data:/app/data
+    command: python ingest.py
+
   db:
     image: postgres:16
     container_name: cinematch-db
+    command: >
+      postgres
+      -c max_wal_size=4GB
+      -c checkpoint_timeout=15min
+      -c shared_buffers=512MB
+      -c maintenance_work_mem=512MB
     environment:
       POSTGRES_USER: cinematch_user
       POSTGRES_PASSWORD: 1324
@@ -10,32 +25,40 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./src/backend/cinematch_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
 
+  seed:
+    build:
+      context: ./src/backend
+    container_name: cinematch-seed
+    restart: "no"
+    env_file:
+      - ./src/backend/.env
+    depends_on:
+      db:
+        condition: service_started
+      prepare-data:
+        condition: service_completed_successfully
+    volumes:
+      - ./data:/app/data
+    command: >
+      sh -c "sleep 8 &&
+             python scripts/load_data.py --data-dir /app/data/processed"
+
   ml:
     build:
       context: ./src/ml
     container_name: cinematch-ml
     env_file:
       - ./src/ml/.env
+    depends_on:
+      prepare-data:
+        condition: service_completed_successfully
+      seed:
+        condition: service_completed_successfully
     ports:
       - "8001:8001"
     volumes:
       - ./data:/app/data
       - ./artifacts:/app/artifacts
-
-
-  seed:
-    build:
-      context: ./src/backend
-    container_name: cinematch-seed
-    env_file:
-      - ./src/backend/.env
-    depends_on:
-      - db
-    volumes:
-      - ./data:/app/data
-    command: >
-      sh -c "sleep 8 &&
-             python scripts/load_data.py --data-dir /app/data/processed"
 
   backend:
     build:
@@ -44,14 +67,13 @@ services:
     env_file:
       - ./src/backend/.env
     depends_on:
-      - db
-      - ml
+      seed:
+        condition: service_completed_successfully
+      ml:
+        condition: service_started
     ports:
       - "8000:8000"
-    volumes:
-      - ./data:/app/data
-    command: >
-      uvicorn app.main:app --host 0.0.0.0 --port 8000
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
   front:
     build:
@@ -60,7 +82,8 @@ services:
     environment:
       BACKEND_URL: http://backend:8000
     depends_on:
-      - backend
+      backend:
+        condition: service_started
     ports:
       - "8501:8501"
 

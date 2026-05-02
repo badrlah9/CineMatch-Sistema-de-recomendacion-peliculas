@@ -183,39 +183,48 @@ def load_links(engine, data_dir: str) -> None:
 
 def load_ratings(engine, data_dir: str, use_sample: bool) -> None:
     filename = "ratings_sample.csv" if use_sample else "ratings_clean.csv"
-    print(f"\n[3] Cargando ratings ({filename})...")
+    print(f"\n[3] Cargando ratings ({filename}) con COPY...")
     filepath = os.path.join(data_dir, filename)
     _check_file(filepath)
 
-    total_inserted = 0
+    with engine.begin() as conn:
+        # 1. Crear tabla temporal con columnas tal cual vienen en el CSV
+        conn.execute(text("""
+            CREATE TEMP TABLE tmp_ratings (
+                "userId"    INTEGER,
+                "movieId"   INTEGER,
+                rating      NUMERIC,
+                "timestamp" BIGINT
+            ) ON COMMIT DROP;
+        """))
 
-    for chunk in pd.read_csv(filepath, chunksize=CHUNK_SIZE):
-        # Convertir timestamp Unix epoch (segundos) → datetime ISO 8601 con UTC
-        chunk["rated_at"] = pd.to_datetime(
-            chunk["timestamp"], unit="s", utc=True
-        ).dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+        raw_conn = conn.connection
+        cursor = raw_conn.cursor()
 
-        records = [
-            {
-                "user_id":  int(r.userId),
-                "movie_id": int(r.movieId),
-                "rating":   float(r.rating),
-                "rated_at": r.rated_at,
-            }
-            for r in chunk.itertuples(index=False)
-        ]
+        # 2. Cargar CSV completo a tabla temporal usando COPY
+        with open(filepath, "r", encoding="utf-8") as f:
+            cursor.copy_expert("""
+                COPY tmp_ratings ("userId", "movieId", rating, "timestamp")
+                FROM STDIN
+                WITH (FORMAT CSV, HEADER TRUE)
+            """, f)
 
-        with engine.begin() as conn:
-            conn.execute(text("""
-                INSERT INTO ratings (user_id, movie_id, rating, rated_at)
-                VALUES (:user_id, :movie_id, :rating, :rated_at)
-                ON CONFLICT (user_id, movie_id) DO NOTHING
-            """), records)
+        # 3. Insertar desde temporal a tabla real convirtiendo timestamp
+        conn.execute(text("""
+            INSERT INTO ratings (user_id, movie_id, rating, rated_at)
+            SELECT
+                "userId"::INTEGER,
+                "movieId"::INTEGER,
+                rating::NUMERIC,
+                to_timestamp("timestamp") AT TIME ZONE 'UTC'
+            FROM tmp_ratings
+            ON CONFLICT (user_id, movie_id) DO NOTHING;
+        """))
 
-        total_inserted += len(records)
-        print(f"  Procesados: {total_inserted:,} ratings...", end="\r")
+    with engine.connect() as conn:
+        total = _count(conn, "ratings")
 
-    print(f"  Ratings cargados: {total_inserted:,}              ")
+    print(f"  Ratings en BD: {total:,}")
 
 
 # Main
