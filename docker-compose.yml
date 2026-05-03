@@ -19,7 +19,7 @@ services:
       -c maintenance_work_mem=512MB
     environment:
       POSTGRES_USER: cinematch_user
-      POSTGRES_PASSWORD: 1324
+      POSTGRES_PASSWORD: 12345
       POSTGRES_DB: cinematch
     volumes:
       - postgres_data:/var/lib/postgresql/data

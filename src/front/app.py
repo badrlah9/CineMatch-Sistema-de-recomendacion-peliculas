@@ -1,65 +1,97 @@
 import json
 import os
 import re
-
 import requests
+import base64
+import os
 import streamlit as st
 import streamlit.components.v1 as components
 
 API_URL = os.environ.get("BACKEND_URL", "http://backend:8000")
 
-# 1. Configuración de página
-st.set_page_config(page_title="Cinematch - TFM", page_icon="🎬", layout="centered")
+# 1. Función para convertir la imagen local a Base64
+def get_base64_local_image(path):
+    with open(path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode()
 
-# 2. Estilos
-st.markdown("""
+# 2. Configuración de página
+st.set_page_config(page_title="Cinematch - Login", page_icon="🎬", layout="centered")
+
+# Cargamos imágenes de assets
+try:
+    path_to_img = os.path.join("pages", "assets", "fondo.png")
+    img_base64 = get_base64_local_image(path_to_img)
+except FileNotFoundError:
+    img_base64 = ""
+
+try:
+    path_to_logo = os.path.join("pages", "assets", "logobg.png")
+    logo_base64 = get_base64_local_image(path_to_logo)
+except FileNotFoundError:
+    logo_base64 = ""
+
+# 3. Estilos UNIFICADOS (Estilo Registro aplicado a Login)
+st.markdown(f"""
     <style>
-    .stApp { background-color: #161614; }
+    .stApp {{
+        background-image: linear-gradient(rgba(22, 22, 20, 0.5), rgba(22, 22, 20, 0.5)), 
+                          url("data:image/png;base64,{img_base64}");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+    }}
 
-    [data-testid="stVerticalBlockBorderWrapper"] {
-        background-color: #3B443F !important;
+    /* EL CONTENEDOR (Mismo que en registro para consistencia) */
+    .st-emotion-cache-1gz5zxc {{
+        background-color: rgba(22, 22, 20, 0.85) !important;
         border-radius: 20px !important;
-        padding: 30px !important;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+        padding: 2.5rem !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        border: 1px solid rgba(160, 139, 119, 0.2) !important;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.6) !important;
+    }}
+
+    h2, p, label {{ color: #d0b59b !important; text-align: center; }}
+    
+    /* Inputs con estilo oscuro */
+    .stTextInput>div>div>input {{
+        background-color: rgba(0, 0, 0, 0.6) !important;
+        color: #FAD9B9 !important;
         border: 1px solid #3F2B1F !important;
-    }
+        border-radius: 10px !important;
+        height: 2.7em !important;
+        display: flex !important;
+        align-items: center !important;
+        line-height: normal !important;
+        padding: 0px 15px !important;
+    }}
 
-    h2, p, label { color: #A08B77 !important; text-align: center; }
-    input { background-color: #161614 !important; color: #A08B77 !important; border: 1px solid #3F2B1F !important; }
-
-    .stButton>button {
+    /* Botón Cinematch (Borgoña) */
+    .stButton>button {{
         background-color: #78444A !important;
-        color: #ffffff !important;
+        color: white !important;
         border-radius: 10px !important;
         height: 3.5em !important;
         width: 100% !important;
         border: none !important;
         font-weight: bold !important;
-    }
+        transition: 0.3s;
+    }}
+    
+    .stButton>button:hover {{
+        background-color: #945259 !important;
+        border: 1px solid #d0b59b !important;
+        transform: scale(1.01);
+    }}
 
-    .register-link {
-        color: #A08B77;
-        text-decoration: none;
-        font-size: 0.9em;
-        font-weight: 500;
-        transition: all 0.3s;
-    }
-    .register-link:hover {
-        color: #78444A;
-        text-decoration: underline;
-    }
-    .register-container { text-align: center; margin-top: 15px; }
+    .register-container {{ text-align: center; margin-top: 25px; }}
+    .register-link {{ color: #A08B77; text-decoration: none; font-weight: 500; }}
+    .register-link:hover {{ color: #FAD9B9; text-decoration: underline; }}
     </style>
     """, unsafe_allow_html=True)
 
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-if "token" not in st.session_state:
-    st.session_state.token = None
-
-
-# Helpers
-
+# --- Helpers ---
 def _extract_year(title: str) -> str:
     m = re.search(r'\((\d{4})\)', title)
     return m.group(1) if m else ""
@@ -68,7 +100,6 @@ def _clean_title(title: str) -> str:
     return re.sub(r'\s*\(\d{4}\)\s*$', '', title).strip()
 
 def _fetch_movies(token: str) -> list[dict]:
-    """Obtiene recomendaciones personalizadas; si falla, usa las más populares."""
     headers = {"Authorization": f"Bearer {token}"}
     try:
         resp = requests.get(
@@ -79,10 +110,8 @@ def _fetch_movies(token: str) -> list[dict]:
         )
         if resp.status_code == 200:
             return resp.json().get("recommendations", [])
-    except requests.RequestException:
+    except:
         pass
-
-    # Fallback: películas populares (no requiere auth)
     try:
         resp = requests.get(
             f"{API_URL}/recommendations/popular",
@@ -91,56 +120,21 @@ def _fetch_movies(token: str) -> list[dict]:
         )
         if resp.status_code == 200:
             return resp.json().get("recommendations", [])
-    except requests.RequestException:
+    except:
         pass
-
     return []
 
 def _to_card(rec: dict) -> dict:
     title = rec.get("title", "")
     return {
         "movie_id": rec.get("movie_id"),
-        "title":    _clean_title(title),
-        "year":     _extract_year(title),
-        "genre":    ", ".join(rec.get("genres", [])),
-        "image":    rec.get("poster_url") or "",
-        "rating":   min(5, max(1, round(rec.get("score", 3)))),
-        "synopsis": rec.get("overview") or "Sin sinopsis disponible.",
+        "title":     _clean_title(title),
+        "year":      _extract_year(title),
+        "genre":     ", ".join(rec.get("genres", [])),
+        "image":     rec.get("poster_url") or "",
+        "rating":    min(5, max(1, round(rec.get("score", 3)))),
+        "synopsis":  rec.get("overview") or "Sin sinopsis disponible.",
     }
-
-
-# Pantallas
-
-def login_screen():
-    _, col_card, _ = st.columns([0.5, 2, 0.5])
-    with col_card:
-        with st.container(border=True):
-            st.markdown("<h1 style='text-align:center;'>🎬</h1>", unsafe_allow_html=True)
-            st.markdown("<h2>Login</h2>", unsafe_allow_html=True)
-            user = st.text_input("Usuario")
-            password = st.text_input("Contraseña", type="password")
-            if st.button("Iniciar Sesión"):
-                try:
-                    resp = requests.post(
-                        f"{API_URL}/auth/login",
-                        json={"username": user, "password": password},
-                        timeout=5,
-                    )
-                    if resp.status_code == 200:
-                        st.session_state.authenticated = True
-                        st.session_state.token = resp.json()["access_token"]
-                        st.rerun()
-                    else:
-                        st.error("Credenciales incorrectas")
-                except requests.RequestException:
-                    st.error("No se puede conectar con el servidor. ¿Está el backend en marcha?")
-
-        st.markdown('''
-            <div class="register-container">
-                <a href="/Login" target="_self" class="register-link">¿No tienes cuenta? Regístrate aquí</a>
-            </div>
-        ''', unsafe_allow_html=True)
-
 
 def _fetch_preferences(token: str) -> list[dict]:
     try:
@@ -151,12 +145,60 @@ def _fetch_preferences(token: str) -> list[dict]:
         )
         if resp.status_code == 200:
             return resp.json()
-    except requests.RequestException:
+    except:
         pass
     return []
 
+# --- Pantallas ---
+
+def login_screen():
+    st.markdown("<div style='padding-top: 50px;'></div>", unsafe_allow_html=True)
+    _, col_card, _ = st.columns([0.5, 1.2, 0.5])
+    
+    with col_card:
+        with st.container(border=True):
+            if logo_base64:
+                st.markdown(f"""
+                    <div style="display: flex; justify-content: center; margin-bottom: 10px;">
+                        <img src="data:image/png;base64,{logo_base64}" width="150">
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            st.markdown("<h2 style='margin-bottom:0;'>Iniciar Sesión</h2>", unsafe_allow_html=True)
+            st.markdown("<p style='margin-bottom:20px;'>Tu próxima película favorita te espera</p>", unsafe_allow_html=True)
+            
+            user = st.text_input("Usuario", placeholder="Tu usuario")
+            password = st.text_input("Contraseña", type="password", placeholder="••••••••")
+            
+            st.markdown("<div style='margin-top:20px;'></div>", unsafe_allow_html=True)
+            
+            if st.button("INICIAR SESIÓN"):
+                if user and password:
+                    try:
+                        resp = requests.post(
+                            f"{API_URL}/auth/login",
+                            json={"username": user, "password": password},
+                            timeout=5,
+                        )
+                        if resp.status_code == 200:
+                            st.session_state.authenticated = True
+                            st.session_state.token = resp.json()["access_token"]
+                            st.rerun()
+                        else:
+                            st.error("Credenciales incorrectas")
+                    except:
+                        st.error("Servidor no disponible")
+                else:
+                    st.warning("Completa los campos")
+
+            st.markdown(f'''
+                <div class="register-container">
+                    <a href="/Login" target="_self" class="register-link">¿No tienes cuenta? <b>Regístrate aquí</b></a>
+                </div>
+            ''', unsafe_allow_html=True)
 
 def dashboard():
+    # Sidebar
     if st.sidebar.button("Actualizar"):
         st.rerun()
 
@@ -177,6 +219,7 @@ def dashboard():
         st.session_state.token = None
         st.rerun()
 
+    # Recomendaciones (HTML/JS)
     recs = _fetch_movies(st.session_state.token)
     movies_data = [_to_card(r) for r in recs]
     movies_json = json.dumps(movies_data, ensure_ascii=False)
@@ -189,7 +232,7 @@ def dashboard():
         <script src="https://cdn.tailwindcss.com"></script>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
         <style>
-            body { background-color: #161614; color: white; font-family: sans-serif; margin: 0; padding-top: 10px; overflow: hidden; }
+            body { background-color: transparent; color: white; font-family: sans-serif; margin: 0; padding-top: 10px; overflow: hidden; }
             .swipe-left { animation: swipe-left 0.6s ease-out forwards; }
             .swipe-right { animation: swipe-right 0.6s ease-out forwards; }
             @keyframes swipe-left { 100% { transform: translateX(-600px) rotate(-35deg); opacity: 0; } }
@@ -207,6 +250,28 @@ def dashboard():
             }
             .info-label { color: #A08B77; font-weight: bold; text-transform: uppercase; font-size: 10px; letter-spacing: 0.1em; }
             .no-poster { background: linear-gradient(145deg, #2a2a2a, #1a1a1a); display: flex; align-items: center; justify-content: center; color: #555; font-size: 4rem; }
+
+            /* Estrellas — definidas aquí dentro para que funcionen en el iframe */
+            .rating-stars {
+                display: flex;
+                justify-content: center;
+                gap: 10px;
+                margin-bottom: 12px;
+            }
+            .rating-stars i {
+                cursor: pointer;
+                font-size: 1.6rem;
+                transition: transform 0.15s, color 0.15s;
+                color: #444;
+            }
+            .rating-stars i:hover {
+                color: #fbbf24;
+                transform: scale(1.25);
+            }
+            .rating-stars i.active {
+                color: #fbbf24;
+                transform: scale(1.1);
+            }
         </style>
     </head>
     <body class="flex items-center justify-center">
@@ -220,18 +285,26 @@ def dashboard():
                 <div id="flip-inner" class="flip-card-inner"></div>
             </div>
 
-            <div class="flex items-center justify-between w-full max-w-[300px] mt-8">
+            <!-- Estrellas justo encima de los botones -->
+            <div class="rating-stars mt-6" id="star-rating-container">
+                <i class="fa-solid fa-star" onclick="setStarRating(1)"></i>
+                <i class="fa-solid fa-star" onclick="setStarRating(2)"></i>
+                <i class="fa-solid fa-star" onclick="setStarRating(3)"></i>
+                <i class="fa-solid fa-star" onclick="setStarRating(4)"></i>
+                <i class="fa-solid fa-star" onclick="setStarRating(5)"></i>
+            </div>
+
+            <!-- Solo dos botones: dislike (X) y like (corazón) -->
+            <div class="flex items-center justify-center gap-12 w-full max-w-[300px] mt-4">
                 <button onclick="handleAction('dislike')" class="w-16 h-16 bg-gray-900 border border-white/10 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-all shadow-xl flex items-center justify-center">
                     <i class="fa-solid fa-xmark text-2xl"></i>
-                </button>
-                <button onclick="handleAction('watchlist')" class="w-14 h-14 bg-gray-900 border border-white/10 text-blue-400 rounded-full hover:bg-blue-500 hover:text-white transition-all shadow-xl flex items-center justify-center">
-                    <i class="fa-solid fa-bookmark text-lg"></i>
                 </button>
                 <button onclick="handleAction('like')" class="w-16 h-16 bg-gray-900 border border-white/10 text-emerald-400 rounded-full hover:bg-emerald-500 hover:text-white transition-all shadow-xl flex items-center justify-center">
                     <i class="fa-solid fa-heart text-2xl"></i>
                 </button>
             </div>
-            <p class="mt-8 text-gray-700 text-[10px] uppercase font-bold tracking-widest">Toca la 'i' para ver detalles</p>
+
+            <p class="mt-6 text-gray-700 text-[10px] uppercase font-bold tracking-widest">Toca la 'i' para ver detalles</p>
         </div>
 
         <script>
@@ -239,6 +312,26 @@ def dashboard():
             const AUTH_TOKEN = "__AUTH_TOKEN__";
             const API_URL    = "__API_URL__";
             let currentIndex = 0;
+            let currentStarRating = 0;
+
+            function setStarRating(rating) {
+                currentStarRating = rating;
+                const stars = document.querySelectorAll('#star-rating-container i');
+                stars.forEach((star, index) => {
+                    if (index < rating) {
+                        star.classList.add('active');
+                    } else {
+                        star.classList.remove('active');
+                    }
+                });
+                const movie = movies[currentIndex];
+                if (movie) saveRating(movie.movie_id, rating);
+            }
+
+            function resetStars() {
+                currentStarRating = 0;
+                document.querySelectorAll('#star-rating-container i').forEach(s => s.classList.remove('active'));
+            }
 
             function renderCard() {
                 const inner = document.getElementById('flip-inner');
@@ -302,7 +395,7 @@ def dashboard():
                         'Authorization': `Bearer ${AUTH_TOKEN}`,
                     },
                     body: JSON.stringify({ movie_id: movieId, rating: rating }),
-                }).catch(() => {});  // fire-and-forget
+                }).catch(() => {});
             }
 
             function toggleFlip(e) { e.stopPropagation(); document.getElementById('flip-inner').classList.toggle('flipped'); }
@@ -312,7 +405,6 @@ def dashboard():
                 const wrapper = document.getElementById('card-wrapper');
                 document.getElementById('flip-inner').classList.remove('flipped');
 
-                // Guardar rating si es like o dislike
                 if (type === 'like')    saveRating(movie.movie_id, 5.0);
                 if (type === 'dislike') saveRating(movie.movie_id, 1.0);
 
@@ -321,6 +413,7 @@ def dashboard():
                     setTimeout(() => {
                         currentIndex++;
                         wrapper.classList.remove('swipe-left', 'swipe-right');
+                        resetStars();
                         renderCard();
                     }, 600);
                 }, 100);
@@ -336,6 +429,11 @@ def dashboard():
     html_code = html_code.replace("__API_URL__", API_URL)
     components.html(html_code, height=920)
 
+# --- Lógica de arranque ---
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "token" not in st.session_state:
+    st.session_state.token = None
 
 if not st.session_state.authenticated:
     login_screen()
