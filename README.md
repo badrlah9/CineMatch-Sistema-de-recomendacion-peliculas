@@ -105,7 +105,7 @@ POSTGRES_DB: cinematch
 **src/backend/.env**
 
 ```env
-DATABASE_URL=postgresql://cinematch_user:1324@db:5432/cinematch
+DATABASE_URL=postgresql://cinematch_user:CONTRASEÑA@db:5432/cinematch
 ```
 
 Si no coinciden, el backend mostrará error de conexión:
