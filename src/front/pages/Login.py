@@ -5,33 +5,7 @@ import streamlit as st
 import base64
 import os
 
-<<<<<<< HEAD
-API_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
-
-# Mapeo de nombres en español a los nombres en inglés que usa la base de datos (MovieLens)
-GENRE_MAP = {
-    "Acción":          "Action",
-    "Comedia":         "Comedy",
-    "Drama":           "Drama",
-    "Terror":          "Horror",
-    "Ciencia Ficción": "Sci-Fi",
-    "Romance":         "Romance",
-    "Animación":       "Animation",
-    "Aventura":        "Adventure",
-    "Bélica":          "War",
-    "Crimen":          "Crime",
-    "Documental":      "Documentary",
-    "Fantasía":        "Fantasy",
-    "Musical":         "Musical",
-    "Misterio":        "Mystery",
-    "Western":         "Western",
-    "Cine Negro":      "Film-Noir",
-}
-
-# 1. Configuración
-=======
 # 1. Configuración (DEBE SER LO PRIMERO)
->>>>>>> frontv2
 st.set_page_config(page_title="Cinematch - Registro Completo", page_icon="🎬", layout="centered")
 
 # --- LÓGICA DE FONDO ---
@@ -92,7 +66,7 @@ st.markdown(bg_style + """
     """, unsafe_allow_html=True)
 
 # --- TU LÓGICA ORIGINAL ---
-API_URL = "http://localhost:8000"
+API_URL = os.environ.get("BACKEND_URL", "http://backend:8000")
 
 GENRE_MAP = {
     "Acción":           "Action",

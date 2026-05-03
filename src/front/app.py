@@ -7,7 +7,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 
-API_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
+API_URL = os.environ.get("BACKEND_URL", "http://backend:8000")
 
 # 1. Función para convertir la imagen local a Base64
 def get_base64_local_image(path):
@@ -193,7 +193,7 @@ def login_screen():
 
             st.markdown(f'''
                 <div class="register-container">
-                    <a href="/Registro" target="_self" class="register-link">¿No tienes cuenta? <b>Regístrate aquí</b></a>
+                    <a href="/Login" target="_self" class="register-link">¿No tienes cuenta? <b>Regístrate aquí</b></a>
                 </div>
             ''', unsafe_allow_html=True)
 
