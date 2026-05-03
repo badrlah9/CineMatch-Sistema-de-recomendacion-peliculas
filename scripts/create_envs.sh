@@ -9,7 +9,7 @@ mkdir -p src/ml
 
 # Backend
 cat > src/backend/.env <<EOF
-DATABASE_URL=postgresql://cinematch_user:CONTRASEÑA@db:5432/cinematch
+DATABASE_URL=postgresql://cinematch_user:PASSWORD@db:5432/cinematch
 SECRET_KEY=clave_larga_segura
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
