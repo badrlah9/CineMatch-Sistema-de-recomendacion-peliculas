@@ -1,10 +1,6 @@
 # Carga los CSV de data/processed/ (generados por ingest.py) en PostgreSQL.
-# Requiere el schema aplicado (cinematch_schema.sql) y DATABASE_URL en .env.
-#
-# Uso:
-#   python scripts/load_data.py --data-dir /ruta/a/data/processed --sample
-#   python scripts/load_data.py --data-dir /ruta/a/data/processed           # dataset completo
-#   python scripts/load_data.py --data-dir /ruta/a/data/processed --truncate # recargar de cero
+# Solo carga catálogo (películas, géneros y links).
+# NO carga ratings históricos porque el modelo colaborativo ya está entrenado.
 
 import ast
 import os
@@ -17,110 +13,141 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-CHUNK_SIZE = 10_000   # filas por lote al insertar ratings
 
-
+# =====================================================
 # Conexión
+# =====================================================
 
 def get_engine():
     db_url = os.getenv("DATABASE_URL")
+
     if not db_url:
         print("ERROR: DATABASE_URL no está definida en .env")
         sys.exit(1)
+
     try:
         engine = create_engine(db_url, pool_pre_ping=True)
+
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
+
         return engine
+
     except Exception as e:
-        print(f"ERROR: No se puede conectar a la base de datos.\n  {e}")
+        print(f"ERROR: No se puede conectar a la base de datos.\n{e}")
         sys.exit(1)
 
 
+# =====================================================
 # Argumentos
+# =====================================================
 
 def parse_args():
     p = argparse.ArgumentParser(
-        description="Carga los CSV del pipeline en la base de datos CineMatch"
+        description="Carga catálogo CineMatch en PostgreSQL"
     )
+
     p.add_argument(
-        "--data-dir", required=True,
-        help="Ruta a la carpeta data/processed/ generada por el pipeline"
+        "--data-dir",
+        required=True,
+        help="Ruta a data/processed/"
     )
+
     p.add_argument(
-        "--sample", action="store_true",
-        help="Usar ratings_sample.csv (100k filas) en vez del dataset completo"
+        "--truncate",
+        action="store_true",
+        help="Vaciar tablas antes de cargar"
     )
-    p.add_argument(
-        "--truncate", action="store_true",
-        help="Vaciar las tablas antes de cargar (útil para recargar de cero)"
-    )
+
     return p.parse_args()
 
 
+# =====================================================
 # Helpers
+# =====================================================
 
-def _check_file(path: str) -> None:
+def _check_file(path):
     if not os.path.isfile(path):
-        print(f"ERROR: No se encuentra el fichero '{path}'")
-        print("       ¿Has ejecutado el pipeline? → python src/pipeline/ingest.py")
+        print(f"ERROR: No existe {path}")
         sys.exit(1)
 
 
-def _count(conn, table: str) -> int:
-    return conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
+def _count(conn, table):
+    return conn.execute(
+        text(f"SELECT COUNT(*) FROM {table}")
+    ).scalar()
 
 
-# Paso 0: truncar (opcional)
+# =====================================================
+# Truncate
+# =====================================================
 
-def truncate_tables(engine) -> None:
+def truncate_tables(engine):
     print("\n[0] Vaciando tablas...")
+
     with engine.begin() as conn:
-        conn.execute(text(
-            "TRUNCATE TABLE ratings, movie_genres, links, movies RESTART IDENTITY CASCADE"
-        ))
-    print("  Tablas vaciadas: ratings, movie_genres, links, movies")
+        conn.execute(text("""
+            TRUNCATE TABLE
+                movie_genres,
+                links,
+                ratings,
+                movies
+            RESTART IDENTITY CASCADE
+        """))
+
+    print("  Tablas vaciadas")
 
 
-# Paso 1: películas y géneros
+# =====================================================
+# Películas + géneros
+# =====================================================
 
-def load_movies(engine, data_dir: str) -> None:
+def load_movies(engine, data_dir):
     print("\n[1] Cargando películas y géneros...")
+
     filepath = os.path.join(data_dir, "movies_clean.csv")
     _check_file(filepath)
 
     df = pd.read_csv(filepath)
-    print(f"  Películas en CSV : {len(df):,}")
 
-    # Obtener el mapa genre_name → genre_id (ya seedeado por el schema)
+    print(f"  Películas CSV: {len(df):,}")
+
     with engine.connect() as conn:
-        rows = conn.execute(text("SELECT genre_id, name FROM genres")).fetchall()
-    genre_map: dict[str, int] = {row.name: row.genre_id for row in rows}
-    print(f"  Géneros en BD    : {len(genre_map)}")
+        rows = conn.execute(
+            text("SELECT genre_id, name FROM genres")
+        ).fetchall()
 
-    # --- movies ---
+    genre_map = {row.name: row.genre_id for row in rows}
+
+    # ---------------- movies ----------------
+
     movies_records = [
-        {"movie_id": int(row["movieId"]), "title": str(row["title"])}
+        {
+            "movie_id": int(row["movieId"]),
+            "title": str(row["title"])
+        }
         for _, row in df.iterrows()
     ]
+
     with engine.begin() as conn:
         conn.execute(text("""
             INSERT INTO movies (movie_id, title)
             VALUES (:movie_id, :title)
             ON CONFLICT (movie_id) DO NOTHING
         """), movies_records)
-    print(f"  Películas insertadas (nuevas): {_count_inserted(engine, 'movies', len(movies_records))}")
 
-    # --- movie_genres ---
-    # La columna genres en movies_clean.csv está guardada como string de lista Python
-    # Ej: "['Action', 'Comedy']" → ast.literal_eval → ['Action', 'Comedy']
-    mg_records: list[dict] = []
+    # ---------------- movie_genres ----------------
+
+    mg_records = []
+
     for _, row in df.iterrows():
+
         genres_raw = row["genres"]
+
         if isinstance(genres_raw, str) and genres_raw not in ("[]", ""):
             try:
-                genres_list: list[str] = ast.literal_eval(genres_raw)
-            except (ValueError, SyntaxError):
+                genres_list = ast.literal_eval(genres_raw)
+            except Exception:
                 genres_list = []
         else:
             genres_list = []
@@ -129,7 +156,7 @@ def load_movies(engine, data_dir: str) -> None:
             if genre_name in genre_map:
                 mg_records.append({
                     "movie_id": int(row["movieId"]),
-                    "genre_id": genre_map[genre_name],
+                    "genre_id": genre_map[genre_name]
                 })
 
     with engine.begin() as conn:
@@ -138,33 +165,35 @@ def load_movies(engine, data_dir: str) -> None:
             VALUES (:movie_id, :genre_id)
             ON CONFLICT DO NOTHING
         """), mg_records)
-    print(f"  Relaciones película-género   : {len(mg_records):,}")
+
+    print(f"  Géneros relacionados: {len(mg_records):,}")
 
 
-def _count_inserted(engine, table: str, attempted: int) -> str:
-    with engine.connect() as conn:
-        total = _count(conn, table)
-    return f"{total:,} en BD"
+# =====================================================
+# Links
+# =====================================================
 
-
-# Paso 2: links
-
-def load_links(engine, data_dir: str) -> None:
+def load_links(engine, data_dir):
     print("\n[2] Cargando links...")
+
     filepath = os.path.join(data_dir, "links_clean.csv")
     _check_file(filepath)
 
     df = pd.read_csv(filepath)
-    print(f"  Links en CSV : {len(df):,}")
 
-    links_records = []
+    print(f"  Links CSV: {len(df):,}")
+
+    records = []
+
     for _, row in df.iterrows():
+
         tmdb_id = None if pd.isna(row["tmdbId"]) else int(row["tmdbId"])
         imdb_id = None if pd.isna(row["imdbId"]) else str(int(row["imdbId"]))
-        links_records.append({
+
+        records.append({
             "movie_id": int(row["movieId"]),
-            "imdb_id":  imdb_id,
-            "tmdb_id":  tmdb_id,
+            "imdb_id": imdb_id,
+            "tmdb_id": tmdb_id
         })
 
     with engine.begin() as conn:
@@ -172,83 +201,35 @@ def load_links(engine, data_dir: str) -> None:
             INSERT INTO links (movie_id, imdb_id, tmdb_id)
             VALUES (:movie_id, :imdb_id, :tmdb_id)
             ON CONFLICT (movie_id) DO NOTHING
-        """), links_records)
+        """), records)
 
-    with engine.connect() as conn:
-        total = _count(conn, "links")
-    print(f"  Links en BD  : {total:,}")
+    print("  Links cargados")
 
 
-# Paso 3: ratings
-
-def load_ratings(engine, data_dir: str, use_sample: bool) -> None:
-    filename = "ratings_sample.csv" if use_sample else "ratings_clean.csv"
-    print(f"\n[3] Cargando ratings ({filename}) con COPY...")
-    filepath = os.path.join(data_dir, filename)
-    _check_file(filepath)
-
-    with engine.begin() as conn:
-        # 1. Crear tabla temporal con columnas tal cual vienen en el CSV
-        conn.execute(text("""
-            CREATE TEMP TABLE tmp_ratings (
-                "userId"    INTEGER,
-                "movieId"   INTEGER,
-                rating      NUMERIC,
-                "timestamp" BIGINT
-            ) ON COMMIT DROP;
-        """))
-
-        raw_conn = conn.connection
-        cursor = raw_conn.cursor()
-
-        # 2. Cargar CSV completo a tabla temporal usando COPY
-        with open(filepath, "r", encoding="utf-8") as f:
-            cursor.copy_expert("""
-                COPY tmp_ratings ("userId", "movieId", rating, "timestamp")
-                FROM STDIN
-                WITH (FORMAT CSV, HEADER TRUE)
-            """, f)
-
-        # 3. Insertar desde temporal a tabla real convirtiendo timestamp
-        conn.execute(text("""
-            INSERT INTO ratings (user_id, movie_id, rating, rated_at)
-            SELECT
-                "userId"::INTEGER,
-                "movieId"::INTEGER,
-                rating::NUMERIC,
-                to_timestamp("timestamp") AT TIME ZONE 'UTC'
-            FROM tmp_ratings
-            ON CONFLICT (user_id, movie_id) DO NOTHING;
-        """))
-
-    with engine.connect() as conn:
-        total = _count(conn, "ratings")
-
-    print(f"  Ratings en BD: {total:,}")
-
-
+# =====================================================
 # Main
+# =====================================================
 
-def main() -> None:
+def main():
+
     args = parse_args()
 
     if not os.path.isdir(args.data_dir):
-        print(f"ERROR: La carpeta '{args.data_dir}' no existe.")
+        print("ERROR: no existe data-dir")
         sys.exit(1)
 
-    print("CineMatch — Carga de datos en PostgreSQL")
+    print("CineMatch — Seed catálogo")
     print(f"  data-dir : {args.data_dir}")
-    print(f"  modo     : {'muestra (100k ratings)' if args.sample else 'completo (~32M ratings)'}")
-    print(f"  truncate : {'sí' if args.truncate else 'no'}")
 
     engine = get_engine()
+
     print("  BD       : conectada")
 
     with engine.connect() as conn:
-        total = conn.execute(text("SELECT COUNT(*) FROM ratings")).scalar()
+        total_movies = _count(conn, "movies")
 
-    if total > 1000 and not args.truncate:
-        print("⚠️ Base de datos ya cargada. Saltando seed.")
+    if total_movies > 1000 and not args.truncate:
+        print("⚠️ Catálogo ya cargado. Saltando seed.")
         return
 
     if args.truncate:
@@ -256,9 +237,9 @@ def main() -> None:
 
     load_movies(engine, args.data_dir)
     load_links(engine, args.data_dir)
-    load_ratings(engine, args.data_dir, args.sample)
 
-    print("\nCarga completada.")
+    print("\n✔ Carga completada")
+    print("✔ Ratings históricos NO cargados (innecesarios)")
 
 
 if __name__ == "__main__":
