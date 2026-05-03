@@ -76,6 +76,51 @@ src/backend/.env
 src/ml/.env
 ```
 
+### ⚠️ Importante: contraseña de PostgreSQL
+
+Revisa que la contraseña configurada en:
+
+```text
+docker-compose.yml
+```
+
+y en:
+
+```text
+src/backend/.env
+```
+
+sea exactamente la misma.
+
+Ejemplo correcto:
+
+**docker-compose.yml**
+
+```yaml
+POSTGRES_USER: cinematch_user
+POSTGRES_PASSWORD: 1324
+POSTGRES_DB: cinematch
+```
+
+**src/backend/.env**
+
+```env
+DATABASE_URL=postgresql://cinematch_user:1324@db:5432/cinematch
+```
+
+Si no coinciden, el backend mostrará error de conexión:
+
+```text
+password authentication failed
+```
+
+Si cambias la contraseña después de haber creado la base de datos, reinicia todo desde cero:
+
+```bash
+docker compose down -v
+docker compose up --build
+```
+
 ---
 
 ### 3. Descargar dataset MovieLens
