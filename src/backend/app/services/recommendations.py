@@ -1,12 +1,13 @@
 # Lógica de recomendaciones con fallback en 3 capas:
-# 1. Modelo ML (ML_SERVICE_URL cuando Alejandro lo despliegue)
+# 1. Modelo ML (ML_SERVICE_URL)
 # 2. Por preferencias de género del usuario
 # 3. Popularidad bayesiana (siempre disponible)
 
+import json
 import httpx
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Any, Optional
 
 from app.config  import get_settings
 from app.schemas import RecommendationItem, RecommendationsOut
@@ -16,7 +17,9 @@ settings = get_settings()
 TOP_K = 10   # número de recomendaciones a devolver
 
 
-# 1. ML externo
+# ---------------------------------------------------------------------------
+# Preferencias y ratings del usuario
+# ---------------------------------------------------------------------------
 
 def _get_user_preferences(db: Session, user_id: int) -> dict[str, float]:
     """Devuelve las preferencias de género del usuario como {nombre_género: score}."""
@@ -42,22 +45,54 @@ def _get_user_ratings(db: Session, user_id: int) -> list[dict]:
     return [{"movieId": row.movieId, "rating": float(row.rating)} for row in rows]
 
 
+# ---------------------------------------------------------------------------
+# Persistencia del recommendation_state por usuario
+# ---------------------------------------------------------------------------
+
+def _load_recommendation_state(db: Session, user_id: int) -> dict[str, Any] | None:
+    """Carga el estado de rotación del ML para este usuario (None si es la primera llamada)."""
+    sql = text("SELECT state FROM user_recommendation_state WHERE user_id = :uid")
+    row = db.execute(sql, {"uid": user_id}).fetchone()
+    if row and row.state:
+        return json.loads(row.state)
+    return None
+
+
+def _save_recommendation_state(db: Session, user_id: int, state: dict[str, Any]) -> None:
+    """Persiste el estado devuelto por el ML tras cada llamada."""
+    sql = text("""
+        INSERT INTO user_recommendation_state (user_id, state, updated_at)
+        VALUES (:uid, :state, NOW())
+        ON CONFLICT (user_id) DO UPDATE
+            SET state      = EXCLUDED.state,
+                updated_at = NOW()
+    """)
+    db.execute(sql, {"uid": user_id, "state": json.dumps(state)})
+    db.commit()
+
+
+# ---------------------------------------------------------------------------
+# 1. ML externo
+# ---------------------------------------------------------------------------
+
 async def _fetch_from_ml_service(
     user_id: int,
     k: int,
     user_preferences: dict[str, float],
     user_ratings: list[dict],
-) -> Optional[list[dict]]:
-    """Llama al servicio ML de Alejandro (POST /v1/recommendations).
-    Devuelve lista de {movie_id, score} o None si el servicio no está disponible."""
+    recommendation_state: dict[str, Any] | None = None,
+) -> Optional[tuple[list[dict], dict[str, Any] | None]]:
+    """Llama al servicio ML (POST /v1/recommendations).
+    Devuelve (lista de {movie_id, score}, nuevo_estado) o None si el servicio falla."""
     if not settings.ML_SERVICE_URL:
         return None
     try:
         payload = {
-            "user_id": user_id,
-            "user_preferences": user_preferences,
-            "ratings": user_ratings,
-            "top_n": k,
+            "user_id":              user_id,
+            "user_preferences":     user_preferences,
+            "ratings":              user_ratings,
+            "top_n":                k,
+            "recommendation_state": recommendation_state,
         }
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
@@ -66,22 +101,25 @@ async def _fetch_from_ml_service(
             )
             if resp.status_code == 200:
                 data = resp.json()
-                return [
+                items = [
                     {
                         "movie_id": r["movieId"],
                         "score":    r["scores"]["final"],
                     }
                     for r in data.get("recommendations", [])
                 ]
+                new_state = data.get("recommendation_state")
+                return items, new_state
     except Exception:
         pass
     return None
 
 
+# ---------------------------------------------------------------------------
 # 2. Por preferencias de género
+# ---------------------------------------------------------------------------
 
 def _recommend_by_genre(db: Session, user_id: int, k: int) -> list[dict]:
-    # Películas de los géneros favoritos del usuario, ordenadas por score bayesiano.
     sql = text("""
         SELECT
             m.movie_id,
@@ -113,7 +151,9 @@ def _recommend_by_genre(db: Session, user_id: int, k: int) -> list[dict]:
     return [row._asdict() for row in rows]
 
 
+# ---------------------------------------------------------------------------
 # 3. Popularidad (fallback final)
+# ---------------------------------------------------------------------------
 
 def _recommend_by_popularity(db: Session, k: int) -> list[dict]:
     sql = text("""
@@ -126,7 +166,9 @@ def _recommend_by_popularity(db: Session, k: int) -> list[dict]:
     return [row._asdict() for row in rows]
 
 
+# ---------------------------------------------------------------------------
 # Géneros de una película
+# ---------------------------------------------------------------------------
 
 def _get_genres_for_movies(db: Session, movie_ids: list[int]) -> dict[int, list[str]]:
     if not movie_ids:
@@ -144,7 +186,9 @@ def _get_genres_for_movies(db: Session, movie_ids: list[int]) -> dict[int, list[
     return result
 
 
+# ---------------------------------------------------------------------------
 # Función principal
+# ---------------------------------------------------------------------------
 
 async def get_recommendations(
     user_id: int,
@@ -154,14 +198,24 @@ async def get_recommendations(
     source = "model"
     raw: list[dict] = []
 
-    # 1. Modelo ML externo
     user_preferences = _get_user_preferences(db, user_id)
     user_ratings     = _get_user_ratings(db, user_id)
-    ml_result = await _fetch_from_ml_service(user_id, k, user_preferences, user_ratings)
+
+    # Cargar el estado de rotación acumulado de llamadas anteriores
+    rec_state = _load_recommendation_state(db, user_id)
+
+    # 1. Modelo ML externo
+    ml_result = await _fetch_from_ml_service(
+        user_id, k, user_preferences, user_ratings, rec_state
+    )
     if ml_result:
-        # El modelo devuelve movie_id + score; enriquecemos desde la BD
-        movie_ids = [r["movie_id"] for r in ml_result]
-        id_to_score = {r["movie_id"]: r["score"] for r in ml_result}
+        ml_items, new_state = ml_result
+        # Persistir el estado actualizado para que la próxima llamada lo use
+        if new_state is not None:
+            _save_recommendation_state(db, user_id, new_state)
+
+        movie_ids   = [r["movie_id"] for r in ml_items]
+        id_to_score = {r["movie_id"]: r["score"] for r in ml_items}
         sql = text("""
             SELECT m.movie_id, m.title, l.tmdb_id
             FROM   movies m
@@ -185,17 +239,17 @@ async def get_recommendations(
         source = "popularity"
 
     # Enriquecer con géneros
-    movie_ids = [r["movie_id"] for r in raw]
+    movie_ids  = [r["movie_id"] for r in raw]
     genres_map = _get_genres_for_movies(db, movie_ids)
 
     items = [
         RecommendationItem(
-            movie_id  = r["movie_id"],
-            title     = r["title"],
-            genres    = genres_map.get(r["movie_id"], []),
-            score     = float(r["score"] if r.get("score") is not None else (r.get("bayesian_score") or 0.0)),
-            tmdb_id   = r.get("tmdb_id"),
-            source    = source,
+            movie_id = r["movie_id"],
+            title    = r["title"],
+            genres   = genres_map.get(r["movie_id"], []),
+            score    = float(r["score"] if r.get("score") is not None else (r.get("bayesian_score") or 0.0)),
+            tmdb_id  = r.get("tmdb_id"),
+            source   = source,
         )
         for r in raw
     ]

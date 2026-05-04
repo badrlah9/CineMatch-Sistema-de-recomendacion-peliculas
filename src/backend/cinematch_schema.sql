@@ -182,6 +182,20 @@ CREATE INDEX idx_cinematch_ratings_user  ON cinematch_ratings (user_id);
 CREATE INDEX idx_cinematch_ratings_movie ON cinematch_ratings (movie_id);
 
 
+-- 2.4 user_recommendation_state
+-- Estado de rotación del motor ML por usuario.
+-- Primera llamada → state = NULL. Cada respuesta del ML devuelve un estado
+-- actualizado que se persiste aquí y se reenvía en la siguiente llamada,
+-- evitando que el modelo repita siempre las mismas recomendaciones.
+CREATE TABLE user_recommendation_state (
+    user_id    INTEGER      PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+    state      TEXT         NOT NULL,   -- JSON serializado del recommendation_state del ML
+    updated_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+COMMENT ON TABLE user_recommendation_state IS 'Estado de rotación del ML por usuario. Se acumula entre llamadas para evitar repetir recomendaciones.';
+
+
 -- Vistas
 
 -- Estadísticas agregadas por película
