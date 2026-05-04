@@ -1,0 +1,82 @@
+===============================================================
+GUÍA RÁPIDA PARA LEVANTAR EL SERVICIO LOCAL DE CINE MATCH
+===============================================================
+
+**Tenemos que tener el modelo descargado, son 3 ficheros, deben estar ubicados en "artifacts/tensorflow/..."
+
+
+descarga: https://drive.google.com/drive/folders/1Tq14PoZZq4UTBxqIZz-2jcanA9PMf5xx?usp=sharing
+
+
+
+
+Una vez tengas el proyecto en local, sigue estos pasos desde la raíz del repositorio.
+
+1. Instalar dependencias
+
+python -m pip install -r requirements.txt
+
+
+2. Levantar la API en local
+
+PYTHONPATH=src uvicorn fastapi_app:app --reload --host 127.0.0.1 --port 8000
+
+Este comando arranca la aplicación FastAPI definida en `fastapi_app.py`.
+
+Endpoints disponibles:
+- GET /health
+- GET /ready
+- POST /v1/recommendations
+
+
+3. Comprobar que la API está viva
+
+curl http://127.0.0.1:8000/health
+
+Si todo está correcto, la API devolverá una respuesta indicando que el servicio está activo.
+
+
+4. Endpoint principal de recomendaciones
+
+POST http://127.0.0.1:8000/v1/recommendations
+
+
+5. Ejemplo de petición al endpoint de recomendaciones
+
+curl -X POST "http://127.0.0.1:8000/v1/recommendations" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": 999002,
+    "user_preferences": {
+      "Sci-Fi": 5,
+      "Thriller": 4,
+      "Drama": 2
+    },
+    "ratings": [
+      { "movieId": 296, "rating": 5.0 },
+      { "movieId": 318, "rating": 4.5 },
+      { "movieId": 593, "rating": 4.0 },
+      { "movieId": 2571, "rating": 5.0 }
+    ],
+    "top_n": 10,
+    "shortlist_size": 300,
+    "recommendation_state": null,
+    "apply_rotation": true,
+    "include_debug_scores": true
+  }'
+
+
+6. Qué devuelve el servicio
+
+La respuesta incluye:
+- `recommendations`: lista de películas recomendadas
+- `metadata`: información del camino usado por el híbrido y datos útiles de depuración
+- `recommendation_state`: estado que permite mantener rotación y variedad entre llamadas
+
+Importante:
+Si quieres que en llamadas sucesivas no devuelva siempre exactamente el mismo top, debes reutilizar el valor de `recommendation_state` recibido en la respuesta anterior y enviarlo en la siguiente petición.
+
+
+7. Recomendación práctica
+
+Mantén abierta la terminal donde arranca Uvicorn y usa otra terminal distinta para lanzar los `curl` de prueba.
