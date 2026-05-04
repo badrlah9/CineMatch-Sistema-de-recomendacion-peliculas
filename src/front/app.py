@@ -8,6 +8,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 API_URL = os.environ.get("BACKEND_URL", "http://backend:8000")
+PUBLIC_API_URL = os.environ.get("PUBLIC_BACKEND_URL", "http://localhost:8000")
 
 # 1. Función para convertir la imagen local a Base64
 def get_base64_local_image(path):
@@ -193,7 +194,7 @@ def login_screen():
 
             st.markdown(f'''
                 <div class="register-container">
-                    <a href="/Login" target="_self" class="register-link">¿No tienes cuenta? <b>Regístrate aquí</b></a>
+                    <a href="/Register" target="_self" class="register-link">¿No tienes cuenta? <b>Regístrate aquí</b></a>
                 </div>
             ''', unsafe_allow_html=True)
 
@@ -285,7 +286,7 @@ def dashboard():
                 <div id="flip-inner" class="flip-card-inner"></div>
             </div>
 
-            <!-- Estrellas justo encima de los botones -->
+            <!-- Estrellas -->
             <div class="rating-stars mt-6" id="star-rating-container">
                 <i class="fa-solid fa-star" onclick="setStarRating(1)"></i>
                 <i class="fa-solid fa-star" onclick="setStarRating(2)"></i>
@@ -293,18 +294,19 @@ def dashboard():
                 <i class="fa-solid fa-star" onclick="setStarRating(4)"></i>
                 <i class="fa-solid fa-star" onclick="setStarRating(5)"></i>
             </div>
+            <p id="stars-hint" class="text-gray-600 text-[10px] uppercase font-bold tracking-widest mt-1">Selecciona una puntuación</p>
 
-            <!-- Solo dos botones: dislike (X) y like (corazón) -->
-            <div class="flex items-center justify-center gap-12 w-full max-w-[300px] mt-4">
-                <button onclick="handleAction('dislike')" class="w-16 h-16 bg-gray-900 border border-white/10 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-all shadow-xl flex items-center justify-center">
-                    <i class="fa-solid fa-xmark text-2xl"></i>
+            <!-- Botones: No la he visto / Enviar puntuación -->
+            <div class="flex items-center justify-center gap-4 w-full max-w-[340px] mt-4">
+                <button onclick="handleSkip()" class="flex-1 py-3 bg-gray-900 border border-white/10 text-gray-400 rounded-2xl hover:bg-gray-800 hover:text-white transition-all shadow-xl font-bold text-sm">
+                    No la he visto
                 </button>
-                <button onclick="handleAction('like')" class="w-16 h-16 bg-gray-900 border border-white/10 text-emerald-400 rounded-full hover:bg-emerald-500 hover:text-white transition-all shadow-xl flex items-center justify-center">
-                    <i class="fa-solid fa-heart text-2xl"></i>
+                <button onclick="handleRate()" class="flex-1 py-3 bg-[#78444A] border border-[#78444A] text-white rounded-2xl hover:bg-[#945259] transition-all shadow-xl font-bold text-sm">
+                    Enviar puntuación
                 </button>
             </div>
 
-            <p class="mt-6 text-gray-700 text-[10px] uppercase font-bold tracking-widest">Toca la 'i' para ver detalles</p>
+            <p class="mt-4 text-gray-700 text-[10px] uppercase font-bold tracking-widest">Toca la 'i' para ver detalles</p>
         </div>
 
         <script>
@@ -318,19 +320,16 @@ def dashboard():
                 currentStarRating = rating;
                 const stars = document.querySelectorAll('#star-rating-container i');
                 stars.forEach((star, index) => {
-                    if (index < rating) {
-                        star.classList.add('active');
-                    } else {
-                        star.classList.remove('active');
-                    }
+                    star.classList.toggle('active', index < rating);
                 });
-                const movie = movies[currentIndex];
-                if (movie) saveRating(movie.movie_id, rating);
+                const labels = ['', 'Muy mala', 'Mala', 'Regular', 'Buena', 'Muy buena'];
+                document.getElementById('stars-hint').textContent = labels[rating] || '';
             }
 
             function resetStars() {
                 currentStarRating = 0;
                 document.querySelectorAll('#star-rating-container i').forEach(s => s.classList.remove('active'));
+                document.getElementById('stars-hint').textContent = 'Selecciona una puntuación';
             }
 
             function renderCard() {
@@ -400,23 +399,36 @@ def dashboard():
 
             function toggleFlip(e) { e.stopPropagation(); document.getElementById('flip-inner').classList.toggle('flipped'); }
 
-            function handleAction(type) {
-                const movie   = movies[currentIndex];
+            function advanceCard(direction) {
                 const wrapper = document.getElementById('card-wrapper');
                 document.getElementById('flip-inner').classList.remove('flipped');
-
-                if (type === 'like')    saveRating(movie.movie_id, 5.0);
-                if (type === 'dislike') saveRating(movie.movie_id, 1.0);
-
+                wrapper.classList.add(direction === 'left' ? 'swipe-left' : 'swipe-right');
                 setTimeout(() => {
-                    wrapper.classList.add(type === 'dislike' ? 'swipe-left' : 'swipe-right');
+                    currentIndex++;
+                    wrapper.classList.remove('swipe-left', 'swipe-right');
+                    resetStars();
+                    renderCard();
+                }, 600);
+            }
+
+            function handleSkip() {
+                advanceCard('left');
+            }
+
+            function handleRate() {
+                if (currentStarRating === 0) {
+                    const hint = document.getElementById('stars-hint');
+                    hint.textContent = '⚠ Elige una puntuación primero';
+                    hint.style.color = '#f87171';
                     setTimeout(() => {
-                        currentIndex++;
-                        wrapper.classList.remove('swipe-left', 'swipe-right');
-                        resetStars();
-                        renderCard();
-                    }, 600);
-                }, 100);
+                        hint.textContent = 'Selecciona una puntuación';
+                        hint.style.color = '';
+                    }, 2000);
+                    return;
+                }
+                const movie = movies[currentIndex];
+                if (movie) saveRating(movie.movie_id, currentStarRating);
+                advanceCard('right');
             }
             renderCard();
         </script>
@@ -426,7 +438,7 @@ def dashboard():
 
     html_code = html_code.replace("__MOVIES_DATA__", movies_json)
     html_code = html_code.replace("__AUTH_TOKEN__", st.session_state.token or "")
-    html_code = html_code.replace("__API_URL__", API_URL)
+    html_code = html_code.replace("__API_URL__", PUBLIC_API_URL)
     components.html(html_code, height=920)
 
 # --- Lógica de arranque ---

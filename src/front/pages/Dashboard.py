@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 import altair as alt
 import pandas as pd
@@ -106,29 +106,48 @@ recs_items = recs_raw.get("recommendations", []) if isinstance(recs_raw, dict) e
 
 # ── Pre-cálculos ──────────────────────────────────────────────────────────────
 total    = len(ratings_raw)
-likes    = sum(1 for r in ratings_raw if r["rating"] >= 4.0)
-dislikes = sum(1 for r in ratings_raw if r["rating"] <= 2.0)
-neutral  = total - likes - dislikes
-precision = round(likes / total * 100) if total else 0
+altas    = sum(1 for r in ratings_raw if r["rating"] >= 4.0)   # 4-5 ★
+bajas    = sum(1 for r in ratings_raw if r["rating"] <= 2.0)   # 1-2 ★
+medias   = total - altas - bajas                                # 3 ★
+precision = round(altas / total * 100) if total else 0
 
 fav_genre = prefs_raw[0]["genre_name"] if prefs_raw else "—"
 
 dates = [r["rated_at"][:10] for r in ratings_raw if r.get("rated_at")]
 dias_activo = len(set(dates))
 
+if ratings_raw:
+    timestamps = [
+        datetime.fromisoformat(r["rated_at"].replace("Z", "+00:00"))
+        for r in ratings_raw if r.get("rated_at")
+    ]
+    primera = min(timestamps)
+    delta   = datetime.now(timezone.utc) - primera
+    _d = delta.days
+    _h = delta.seconds // 3600
+    _m = (delta.seconds % 3600) // 60
+    if _d > 0:
+        tiempo_activo = f"{_d}d {_h}h {_m}m"
+    elif _h > 0:
+        tiempo_activo = f"{_h}h {_m}m"
+    else:
+        tiempo_activo = f"{_m}m"
+else:
+    tiempo_activo = "—"
+
 source_labels = {"model": "Modelo IA", "genre_based": "Por género", "popularity": "Popularidad"}
 source_colors = {"Modelo IA": "#78444A", "Por género": "#A08B77", "Popularidad": "#3B443F"}
 
 # ── Cabecera ──────────────────────────────────────────────────────────────────
-st.markdown("<h1 style='margin-bottom:4px;'>📊 Mi Dashboard</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:4px;'>Mi Dashboard</h1>", unsafe_allow_html=True)
 st.markdown("<p style='color:#555;font-size:0.85rem;margin-top:0;'>Así te está conociendo CineMatch</p>", unsafe_allow_html=True)
 st.divider()
 
 # ── Fila de métricas ──────────────────────────────────────────────────────────
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Películas valoradas", total)
-c2.metric("Precisión del modelo", f"{precision}%", help="% de recomendaciones que te gustaron")
-c3.metric("Días activo", dias_activo)
+c2.metric("Bien valoradas", f"{precision}%", help="% de películas a las que diste 4 o 5 estrellas")
+c3.metric("Tiempo activo", tiempo_activo, help="Desde tu primera valoración hasta ahora")
 c4.metric("Género favorito", fav_genre)
 
 st.divider()
@@ -138,14 +157,14 @@ col_prec, col_source = st.columns([1, 1])
 
 with col_prec:
     with st.container(border=True):
-        st.markdown("<p class='section-title'>Precisión del modelo sobre ti</p>", unsafe_allow_html=True)
+        st.markdown("<p class='section-title'>Distribución de tus puntuaciones</p>", unsafe_allow_html=True)
 
         if total == 0:
-            st.caption("Valora algunas películas para ver la precisión.")
+            st.caption("Valora algunas películas para ver tu distribución.")
         else:
             df_donut = pd.DataFrame({
-                "tipo":  ["Te gustaron ❤️", "No te gustaron ❌", "Neutral ⭐"],
-                "count": [likes, dislikes, neutral],
+                "tipo":  ["4-5 ★ Buenas", "3 ★ Regular", "1-2 ★ Malas"],
+                "count": [altas, medias, bajas],
             })
             donut = (
                 alt.Chart(df_donut)
@@ -155,12 +174,15 @@ with col_prec:
                     color=alt.Color(
                         "tipo:N",
                         scale=alt.Scale(
-                            domain=["Te gustaron ❤️", "No te gustaron ❌", "Neutral ⭐"],
-                            range=["#4ade80", "#f87171", "#6b7280"],
+                            domain=["4-5 ★ Buenas", "3 ★ Regular", "1-2 ★ Malas"],
+                            range=["#4ade80", "#fbbf24", "#f87171"],
                         ),
                         legend=alt.Legend(orient="bottom", labelColor="#A08B77", titleColor="#A08B77"),
                     ),
-                    tooltip=["tipo:N", "count:Q"],
+                    tooltip=[
+                        alt.Tooltip("tipo:N", title="Categoría"),
+                        alt.Tooltip("count:Q", title="Películas"),
+                    ],
                 )
                 .properties(width=260, height=260, background="#1e1e1c")
                 .configure_view(strokeWidth=0)
@@ -172,57 +194,67 @@ with col_prec:
 
             st.markdown(
                 f"<p style='text-align:center;font-size:1.6rem;font-weight:900;color:#FAD9B9;margin-top:-8px;'>"
-                f"{precision}% de acierto</p>",
+                f"{altas} de {total} con 4-5 ★</p>",
                 unsafe_allow_html=True,
             )
             st.markdown(
                 f"<p style='text-align:center;font-size:0.8rem;color:#666;'>"
-                f"De {total} swipes: {likes} gustaron · {dislikes} no gustaron</p>",
+                f"{altas} buenas · {medias} regular · {bajas} malas</p>",
                 unsafe_allow_html=True,
             )
 
 with col_source:
     with st.container(border=True):
-        st.markdown("<p class='section-title'>¿De dónde vienen tus recomendaciones?</p>", unsafe_allow_html=True)
+        st.markdown("<p class='section-title'>Composición del motor de recomendaciones</p>", unsafe_allow_html=True)
 
-        if not recs_items:
-            st.caption("No hay recomendaciones disponibles.")
+        has_prefs = len(prefs_raw) > 0
+
+        if total == 0:
+            w_svd, w_emb, w_content = 0.00, 0.00, 1.00
+        elif total < 5:
+            w_svd, w_emb, w_content = (0.25, 0.20, 0.55) if has_prefs else (0.40, 0.25, 0.35)
+        elif total < 15:
+            w_svd, w_emb, w_content = (0.35, 0.25, 0.40) if has_prefs else (0.48, 0.27, 0.25)
         else:
-            source_counts: dict[str, int] = {label: 0 for label in source_labels.values()}
-            for item in recs_items:
-                label = source_labels.get(item.get("source", ""), item.get("source", "Desconocido"))
-                source_counts[label] = source_counts.get(label, 0) + 1
+            w_svd, w_emb, w_content = (0.45, 0.30, 0.25) if has_prefs else (0.55, 0.30, 0.15)
 
-            df_source = pd.DataFrame(
-                [{"Origen": k, "Películas": v} for k, v in source_counts.items()]
-            )
-            color_range = [source_colors.get(k, "#555") for k in df_source["Origen"]]
+        p_svd     = round(w_svd     * 100)
+        p_emb     = round(w_emb     * 100)
+        p_content = round(w_content * 100)
 
-            bars = (
-                alt.Chart(df_source)
-                .mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6)
-                .encode(
-                    x=alt.X("Origen:N", axis=alt.Axis(labelColor="#A08B77", tickColor="#A08B77", domainColor="#333", labelAngle=0)),
-                    y=alt.Y("Películas:Q", axis=alt.Axis(labelColor="#A08B77", tickColor="#A08B77", domainColor="#333", grid=False)),
-                    color=alt.Color(
-                        "Origen:N",
-                        scale=alt.Scale(domain=list(df_source["Origen"]), range=color_range),
-                        legend=None,
-                    ),
-                    tooltip=["Origen:N", "Películas:Q"],
-                )
-                .properties(width=280, height=240, background="#1e1e1c")
-                .configure_view(strokeWidth=0)
-            )
-            st.altair_chart(bars, use_container_width=True)
+        def _bar(label, pct, color, desc):
+            return f"""
+            <div style="margin-bottom:18px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
+                    <span style="color:#FAD9B9;font-size:0.85rem;font-weight:700;">{label}</span>
+                    <span style="color:#FAD9B9;font-size:0.85rem;font-weight:900;">{pct}%</span>
+                </div>
+                <div style="background:#2e2e2a;border-radius:6px;height:10px;overflow:hidden;">
+                    <div style="width:{pct}%;background:{color};height:100%;border-radius:6px;
+                                transition:width 0.6s ease;"></div>
+                </div>
+                <div style="color:#555;font-size:0.75rem;margin-top:4px;">{desc}</div>
+            </div>"""
 
-            primary = max(source_counts, key=source_counts.get)
-            explanations = {
-                "Modelo IA":    "El modelo te conoce bien y usa tu historial para recomendar.",
-                "Por género":   "El sistema usa tus géneros favoritos como base principal.",
-                "Popularidad":  "Aún aprendiendo sobre ti — usa películas populares como base.",
-            }
-            st.info(explanations.get(primary, ""))
+        if total == 0:
+            next_msg = "Valora al menos 1 película para activar el modelo colaborativo."
+        elif total < 5:
+            next_msg = f"Con {5 - total} valoraciones más subirá el peso colaborativo."
+        elif total < 15:
+            next_msg = f"Con {15 - total} valoraciones más el modelo te conocerá mejor."
+        else:
+            next_msg = "El modelo colaborativo tiene suficiente historial tuyo."
+
+        st.markdown(
+            _bar("Modelo colaborativo (IA)", p_svd, "#78444A",
+                 "Infiere tus gustos a partir de tus valoraciones") +
+            _bar("Usuarios similares", p_emb, "#A08B77",
+                 "Recomienda lo que valoraron bien personas con gustos parecidos") +
+            _bar("Contenido (géneros + popularidad)", p_content, "#3B443F",
+                 "Se basa en tus géneros favoritos y el rating histórico de cada película"),
+            unsafe_allow_html=True,
+        )
+        st.caption(f"Basado en {total} valoraciones tuyas · {next_msg}")
 
 st.divider()
 
@@ -307,6 +339,8 @@ with col_gen:
 st.divider()
 
 # ── Historial de valoraciones ─────────────────────────────────────────────────
+PAGE_SIZE = 10
+
 with st.container(border=True):
     st.markdown("<p class='section-title'>Historial de valoraciones</p>", unsafe_allow_html=True)
 
@@ -314,24 +348,41 @@ with st.container(border=True):
         st.caption("Todavía no has valorado ninguna película.")
     else:
         f1, f2 = st.columns([1, 2])
-        filtro   = f1.selectbox("", ["Todas", "❤️ Me gustaron", "❌ No me gustaron"], label_visibility="collapsed")
-        busqueda = f2.text_input("", placeholder="Buscar por título...", label_visibility="collapsed")
+        filtro   = f1.selectbox("", ["Todas", "Bien valoradas (4-5 ★)", "Mal valoradas (1-2 ★)"], label_visibility="collapsed", key="hist_filter")
+        busqueda = f2.text_input("", placeholder="Buscar por título...", label_visibility="collapsed", key="hist_search")
+
+        # Resetear paginación si cambian los filtros
+        filter_key = (filtro, busqueda)
+        if st.session_state.get("_hist_filter_key") != filter_key:
+            st.session_state["_hist_filter_key"] = filter_key
+            st.session_state["hist_shown"] = PAGE_SIZE
 
         shown = ratings_raw
-        if filtro == "❤️ Me gustaron":
+        if filtro == "Bien valoradas (4-5 ★)":
             shown = [r for r in shown if r["rating"] >= 4.0]
-        elif filtro == "❌ No me gustaron":
+        elif filtro == "Mal valoradas (1-2 ★)":
             shown = [r for r in shown if r["rating"] <= 2.0]
         if busqueda:
             shown = [r for r in shown if busqueda.lower() in r["title"].lower()]
 
-        st.caption(f"{len(shown)} de {total} valoraciones")
+        n_shown = st.session_state.get("hist_shown", PAGE_SIZE)
+        displayed = shown[:n_shown]
 
-        for r in shown:
-            badge = "❤️" if r["rating"] >= 4.0 else ("❌" if r["rating"] <= 2.0 else "⭐")
+        st.caption(f"Mostrando {len(displayed)} de {len(shown)} valoraciones")
+
+        for r in displayed:
+            filled  = round(r["rating"])
+            stars   = "★" * filled + "☆" * (5 - filled)
             date_str = r["rated_at"][:10] if r.get("rated_at") else ""
             st.markdown(
-                f"{badge} &nbsp; **{_clean_title(r['title'])}** "
+                f"<span style='color:#fbbf24;font-size:1rem;'>{stars}</span> &nbsp;"
+                f"**{_clean_title(r['title'])}** "
                 f"<span style='color:#555;font-size:0.82em;'>· {_extract_year(r['title'])} · {date_str}</span>",
                 unsafe_allow_html=True,
             )
+
+        if n_shown < len(shown):
+            remaining = len(shown) - n_shown
+            if st.button(f"Cargar {min(PAGE_SIZE, remaining)} más ({remaining} restantes)"):
+                st.session_state["hist_shown"] = n_shown + PAGE_SIZE
+                st.rerun()

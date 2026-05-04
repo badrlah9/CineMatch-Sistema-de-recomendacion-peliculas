@@ -19,7 +19,7 @@ def get_my_ratings(
     rows = db.execute(
         text("""
             SELECT r.movie_id, m.title, r.rating::float AS rating, r.rated_at
-            FROM   ratings r
+            FROM   cinematch_ratings r
             JOIN   movies m ON m.movie_id = r.movie_id
             WHERE  r.user_id = :uid
             ORDER  BY r.rated_at DESC
@@ -70,18 +70,18 @@ def rate_movie(
 
     # Upsert manual: actualiza si ya existe, inserta si no
     existing = db.execute(
-        text("SELECT rating_id FROM ratings WHERE user_id = :uid AND movie_id = :mid"),
+        text("SELECT rating_id FROM cinematch_ratings WHERE user_id = :uid AND movie_id = :mid"),
         {"uid": current_user.user_id, "mid": body.movie_id},
     ).fetchone()
 
     if existing:
         db.execute(
-            text("UPDATE ratings SET rating = :rating, rated_at = NOW() WHERE rating_id = :rid"),
+            text("UPDATE cinematch_ratings SET rating = :rating, rated_at = NOW() WHERE rating_id = :rid"),
             {"rating": body.rating, "rid": existing.rating_id},
         )
     else:
         db.execute(
-            text("INSERT INTO ratings (user_id, movie_id, rating, rated_at) VALUES (:uid, :mid, :rating, NOW())"),
+            text("INSERT INTO cinematch_ratings (user_id, movie_id, rating, rated_at) VALUES (:uid, :mid, :rating, NOW())"),
             {"uid": current_user.user_id, "mid": body.movie_id, "rating": body.rating},
         )
     db.commit()

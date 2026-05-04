@@ -81,6 +81,7 @@ services:
     container_name: cinematch-front
     environment:
       BACKEND_URL: http://backend:8000
+      PUBLIC_BACKEND_URL: http://localhost:8000
     depends_on:
       backend:
         condition: service_started

@@ -163,6 +163,25 @@ CREATE TRIGGER trg_ugp_updated_at
     FOR EACH ROW EXECUTE FUNCTION fn_set_updated_at();
 
 
+-- 2.3 cinematch_ratings
+-- Valoraciones de los usuarios de CineMatch (distintas de los ratings históricos de MovieLens).
+-- Separadas para evitar colisión de user_id con los datos del dataset.
+CREATE TABLE cinematch_ratings (
+    rating_id   BIGSERIAL    PRIMARY KEY,
+    user_id     INTEGER      NOT NULL REFERENCES users  (user_id)  ON DELETE CASCADE,
+    movie_id    INTEGER      NOT NULL REFERENCES movies (movie_id) ON DELETE CASCADE,
+    rating      NUMERIC(2,1) NOT NULL
+                             CHECK (rating >= 0.5 AND rating <= 5.0),
+    rated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_cinematch_ratings_user_movie UNIQUE (user_id, movie_id)
+);
+
+COMMENT ON TABLE cinematch_ratings IS 'Valoraciones de usuarios CineMatch. Separada de ratings (MovieLens) para evitar colisión de user_id.';
+
+CREATE INDEX idx_cinematch_ratings_user  ON cinematch_ratings (user_id);
+CREATE INDEX idx_cinematch_ratings_movie ON cinematch_ratings (movie_id);
+
+
 -- Vistas
 
 -- Estadísticas agregadas por película

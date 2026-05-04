@@ -34,7 +34,7 @@ def _get_user_ratings(db: Session, user_id: int) -> list[dict]:
     """Devuelve el historial de ratings del usuario como lista de {movieId, rating}."""
     sql = text("""
         SELECT movie_id AS "movieId", rating
-        FROM   ratings
+        FROM   cinematch_ratings
         WHERE  user_id = :user_id
         LIMIT  500
     """)
