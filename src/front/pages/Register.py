@@ -1,12 +1,11 @@
+import base64
 import os
 
 import requests
 import streamlit as st
-import base64
-import os
 
 # 1. Configuración (DEBE SER LO PRIMERO)
-st.set_page_config(page_title="Cinematch - Registro Completo", page_icon="🎬", layout="centered")
+st.set_page_config(page_title="Cinematch - Registro Completo", page_icon="🎬", layout="centered", initial_sidebar_state="collapsed")
 
 # --- LÓGICA DE FONDO ---
 def get_base64_image(image_path):
@@ -35,6 +34,44 @@ else:
     bg_style = "<style>.stApp { background-color: #161614; }"
 
 st.markdown(bg_style + """
+    /* Registro sin sidebar ni barra superior de Streamlit. */
+    header[data-testid="stHeader"],
+    header[data-testid="stHeader"] *,
+    [data-testid="stToolbar"],
+    [data-testid="stToolbarActions"],
+    [data-testid="stHeaderActionElements"],
+    [data-testid="stDecoration"],
+    [data-testid="stStatusWidget"],
+    [data-testid="stDeployButton"],
+    [data-testid*="Deploy"],
+    button[title*="Deploy"],
+    button[aria-label*="Deploy"],
+    a[href*="deploy"],
+    a[href*="streamlit.io"],
+    [data-testid="stSidebar"],
+    [data-testid="collapsedControl"],
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="stSidebarNav"],
+    .stDeployButton,
+    #MainMenu,
+    footer {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    [data-testid="stAppViewContainer"] {
+        margin-left: 0 !important;
+    }
+
+    .block-container {
+        padding-top: 1.4rem !important;
+        max-width: 900px !important;
+    }
+
     h1, h2, h3, p, label { color: #d0b59b !important; }
 
     .st-emotion-cache-1gz5zxc {

@@ -1,3 +1,4 @@
+import html
 import os
 import re
 from datetime import datetime, timezone
@@ -9,11 +10,230 @@ import streamlit as st
 
 API_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
-st.set_page_config(page_title="Cinematch - Dashboard", page_icon="🎬", layout="wide")
+st.set_page_config(page_title="Cinematch - Dashboard", page_icon="🎬", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
-    .stApp { background-color: #161614; }
+    html, body, .stApp {
+        min-height: 100vh !important;
+    }
+
+    .stApp {
+        background-color: #161614;
+    }
+
+    /* Header transparente: conservamos la flecha nativa, ocultamos Deploy/toolbar. */
+    header[data-testid="stHeader"] {
+        display: block !important;
+        visibility: visible !important;
+        position: fixed !important;
+        inset: 0 0 auto 0 !important;
+        height: 3.2rem !important;
+        min-height: 3.2rem !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        border: none !important;
+        pointer-events: none !important;
+        z-index: 1000000 !important;
+    }
+
+    header[data-testid="stHeader"]::after {
+        content: "";
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: 260px;
+        height: 58px;
+        background: #161614;
+        pointer-events: none;
+        z-index: 1000001;
+    }
+
+    [data-testid="stDecoration"],
+    [data-testid="stStatusWidget"],
+    [data-testid="stDeployButton"],
+    [data-testid*="Deploy"],
+    [data-testid="stSidebarNav"],
+    [data-testid="stMainMenu"],
+    [data-testid="stToolbarActions"],
+    [data-testid="stHeaderActionElements"],
+    [data-testid="stToolbar"] button:not([aria-label*="sidebar" i]):not([aria-label*="barra lateral" i]),
+    header[data-testid="stHeader"] button:not([aria-label*="sidebar" i]):not([aria-label*="barra lateral" i]),
+    header[data-testid="stHeader"] a,
+    button[title*="Deploy"],
+    button[aria-label*="Deploy"],
+    .stDeployButton,
+    #MainMenu,
+    footer {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        width: 0 !important;
+        height: 0 !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        pointer-events: none !important;
+    }
+
+    [data-testid="stToolbar"] {
+        background: transparent !important;
+        pointer-events: none !important;
+    }
+
+    [data-testid="collapsedControl"],
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="stSidebarCollapseButton"],
+    button[aria-label*="sidebar" i],
+    button[aria-label*="barra lateral" i] {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        z-index: 2147483647 !important;
+    }
+
+    [data-testid="collapsedControl"],
+    [data-testid="stSidebarCollapsedControl"] {
+        position: fixed !important;
+        top: 0.72rem !important;
+        left: 0.72rem !important;
+        width: 2.65rem !important;
+        height: 2.65rem !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background: rgba(32, 35, 45, 0.96) !important;
+        border: 1px solid rgba(250, 217, 185, 0.30) !important;
+        border-radius: 999px !important;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.55) !important;
+        backdrop-filter: blur(8px) !important;
+        -webkit-backdrop-filter: blur(8px) !important;
+    }
+
+    [data-testid="collapsedControl"] button,
+    [data-testid="stSidebarCollapsedControl"] button,
+    button[aria-label*="sidebar" i],
+    button[aria-label*="barra lateral" i] {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 2.45rem !important;
+        height: 2.45rem !important;
+        color: #FAD9B9 !important;
+        background: rgba(32, 35, 45, 0.96) !important;
+        border: 1px solid rgba(250, 217, 185, 0.28) !important;
+        border-radius: 999px !important;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.55) !important;
+        pointer-events: auto !important;
+    }
+
+    [data-testid="collapsedControl"] svg,
+    [data-testid="stSidebarCollapsedControl"] svg,
+    [data-testid="stSidebarCollapseButton"] svg,
+    button[aria-label*="sidebar" i] svg,
+    button[aria-label*="barra lateral" i] svg {
+        width: 1.25rem !important;
+        height: 1.25rem !important;
+        color: #FAD9B9 !important;
+        fill: #FAD9B9 !important;
+        stroke: #FAD9B9 !important;
+        stroke-width: 2.5px !important;
+    }
+
+    section[data-testid="stSidebar"] {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        background-color: #20232D !important;
+        border-right: 1px solid rgba(250, 217, 185, 0.06) !important;
+        z-index: 1000002 !important;
+    }
+
+    section[data-testid="stSidebar"] * {
+        pointer-events: auto !important;
+    }
+
+    section[data-testid="stSidebar"] .block-container {
+        height: 100vh !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        padding: 0.55rem 0.65rem 0.8rem 0.65rem !important;
+    }
+
+    section[data-testid="stSidebar"] .block-container > div:first-child {
+        min-height: calc(100vh - 1.35rem) !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+
+    .sidebar-user-card {
+        margin-top: 0.1rem !important;
+        margin-bottom: 0.75rem !important;
+        padding: 0 !important;
+    }
+
+    .username-link,
+    .username-link:visited,
+    .username-link:hover,
+    .username-link:active {
+        color: inherit !important;
+        text-decoration: none !important;
+    }
+
+    .username-link h3 {
+        color: #C7AD93 !important;
+        margin: 0 !important;
+        cursor: pointer;
+        position: relative;
+        display: inline-block;
+        font-size: 1.15rem !important;
+        line-height: 1.1 !important;
+        font-weight: 850 !important;
+        letter-spacing: 0.03em !important;
+        transition: all 0.2s ease;
+    }
+
+    .username-link:hover h3 {
+        color: #FAD9B9 !important;
+        text-shadow: 0 0 8px rgba(250, 217, 185, 0.35);
+    }
+
+    .sidebar-actions-spacer {
+        padding-top: 0.85rem !important;
+        border-top: 1px solid rgba(160, 139, 119, 0.25) !important;
+    }
+
+    section[data-testid="stSidebar"] .element-container:has(.sidebar-actions-spacer) {
+        margin-top: auto !important;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"],
+    section[data-testid="stSidebar"] .stButton>button {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        height: 2.7rem !important;
+        min-height: 2.7rem !important;
+        border-radius: 13px !important;
+        font-size: 0.78rem !important;
+        font-weight: 800 !important;
+        padding: 0.2rem 0.7rem !important;
+        white-space: nowrap !important;
+        background-color: #78444A !important;
+        color: #FAD9B9 !important;
+        border: 1px solid rgba(250, 217, 185, 0.13) !important;
+        box-shadow: 0 9px 19px rgba(0,0,0,0.28) !important;
+    }
+
+    section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"] p,
+    section[data-testid="stSidebar"] .stButton>button p {
+        width: 100% !important;
+        margin: 0 !important;
+        text-align: center !important;
+        color: #FAD9B9 !important;
+    }
+
     h1, h2, h3 { color: #FAD9B9 !important; }
     p, label, div, span { color: #A08B77 !important; }
 
@@ -65,12 +285,30 @@ if not st.session_state.get("authenticated"):
     st.switch_page("app.py")
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
-if st.sidebar.button("← Inicio"):
+username = st.session_state.get("username") or "Usuario"
+st.sidebar.markdown(
+    f"""
+    <div class="sidebar-user-card">
+        <a href="/" target="_self" class="username-link">
+            <h3>{html.escape(username)}</h3>
+        </a>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+st.sidebar.divider()
+
+if st.sidebar.button("← Inicio", key="sidebar_home", type="primary", use_container_width=True):
     st.switch_page("app.py")
-if st.sidebar.button("Cerrar Sesión"):
-    st.session_state.authenticated = False
-    st.session_state.token = None
-    st.switch_page("app.py")
+
+st.sidebar.markdown("<div class='sidebar-actions-spacer'></div>", unsafe_allow_html=True)
+_, col_logout, _ = st.sidebar.columns([0.12, 0.76, 0.12], gap="small")
+with col_logout:
+    if st.button("Cerrar Sesión", key="sidebar_logout", type="primary", use_container_width=True):
+        st.session_state.authenticated = False
+        st.session_state.token = None
+        st.session_state.username = None
+        st.switch_page("app.py")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

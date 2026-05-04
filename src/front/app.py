@@ -20,7 +20,7 @@ def get_base64_local_image(path: str) -> str:
         return base64.b64encode(image_file.read()).decode()
 
 
-st.set_page_config(page_title="Cinematch", page_icon="🎬", layout="centered")
+st.set_page_config(page_title="Cinematch", page_icon="🎬", layout="centered", initial_sidebar_state="expanded")
 
 try:
     img_base64 = get_base64_local_image(os.path.join("pages", "assets", "fondo.png"))
@@ -43,152 +43,69 @@ except Exception:
     pass
 
 
+# Estado mínimo antes de inyectar CSS: así el login puede ocultar la sidebar
+# y la vista de películas puede mostrarla normalmente.
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "token" not in st.session_state:
+    st.session_state.token = None
+if "username" not in st.session_state:
+    st.session_state.username = None
+
+_IS_AUTHENTICATED = bool(st.session_state.get("authenticated") and st.session_state.get("token"))
+
+_LOGIN_ONLY_HIDE_SIDEBAR_CSS = """
+    /* Login: sin sidebar, sin botón de sidebar y sin barra superior. */
+    header[data-testid="stHeader"],
+    header[data-testid="stHeader"] *,
+    section[data-testid="stSidebar"],
+    [data-testid="stSidebar"],
+    [data-testid="collapsedControl"],
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="stSidebarNav"],
+    button[aria-label="Open sidebar"],
+    button[aria-label="Abrir barra lateral"],
+    button[aria-label="Close sidebar"],
+    button[aria-label="Cerrar barra lateral"] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        width: 0 !important;
+        height: 0 !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        pointer-events: none !important;
+    }
+
+    [data-testid="stAppViewContainer"],
+    [data-testid="stAppViewContainer"] > .main,
+    section.main {
+        margin-left: 0 !important;
+    }
+""" if not _IS_AUTHENTICATED else ""
+
+
 st.markdown(
     f"""
     <style>
-    /* Limpieza general de Streamlit: sin Deploy/menú, pero conservando la flecha del sidebar */
+    /* ============================================================
+       BASE APP
+       ============================================================ */
     html, body, .stApp {{
         height: 100vh !important;
         max-height: 100vh !important;
         overflow: hidden !important;
     }}
 
-    /* Header transparente, pero NO lo eliminamos: Streamlit mete aquí la flecha del sidebar. */
-    header[data-testid="stHeader"] {{
-        display: block !important;
-        visibility: visible !important;
-        position: fixed !important;
-        top: 0 !important;
-        left: 0 !important;
-        right: 0 !important;
-        height: 3rem !important;
-        min-height: 3rem !important;
-        background: transparent !important;
-        overflow: visible !important;
-        pointer-events: none !important;
-        z-index: 2147483647 !important;
-    }}
-
-    header[data-testid="stHeader"] * {{
-        pointer-events: auto !important;
-    }}
-
-    /* No ocultamos stToolbar entero porque en algunas versiones contiene la flecha. */
-    [data-testid="stToolbar"] {{
-        display: flex !important;
-        visibility: visible !important;
-        background: transparent !important;
-        pointer-events: none !important;
-        z-index: 2147483647 !important;
-    }}
-
-    /* Oculta solo elementos de la barra superior que sobran, no la flecha del sidebar. */
-    [data-testid="stDecoration"],
-    [data-testid="stStatusWidget"],
-    [data-testid="stDeployButton"],
-    [data-testid="stToolbar"] [data-testid="stDeployButton"],
-    [data-testid="stToolbar"] [data-testid="stStatusWidget"],
-    [data-testid="stToolbar"] [data-testid="stMainMenu"],
-    [data-testid="stToolbar"] button[title="Deploy"],
-    [data-testid="stToolbar"] button[aria-label="Deploy"],
-    [data-testid="stToolbar"] button[aria-label="Main menu"],
-    [data-testid="stToolbar"] button[aria-label="Menú principal"],
-    .stDeployButton,
-    #MainMenu,
-    footer {{
-        display: none !important;
-        visibility: hidden !important;
-        height: 0 !important;
-        min-height: 0 !important;
-    }}
-
-    /* Flecha de abrir/cerrar sidebar: visible aunque quitemos la barra superior */
-    [data-testid="collapsedControl"],
-    [data-testid="stSidebarCollapsedControl"],
-    [data-testid="stSidebarCollapseButton"],
-    button[aria-label="Open sidebar"],
-    button[aria-label="Close sidebar"],
-    button[aria-label="Abrir barra lateral"],
-    button[aria-label="Cerrar barra lateral"] {{
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        pointer-events: auto !important;
-        z-index: 2147483647 !important;
-    }}
-
-    [data-testid="collapsedControl"],
-    [data-testid="stSidebarCollapsedControl"],
-    [data-testid="stSidebarCollapseButton"] {{
-        position: fixed !important;
-        top: 0.65rem !important;
-        left: 0.65rem !important;
-        width: 2.45rem !important;
-        height: 2.45rem !important;
-        align-items: center !important;
-        justify-content: center !important;
-        transform: none !important;
-        clip: auto !important;
-        overflow: visible !important;
-    }}
-
-    [data-testid="collapsedControl"] button,
-    [data-testid="stSidebarCollapsedControl"] button,
-    [data-testid="stSidebarCollapseButton"] button,
-    button[kind="header"],
-    button[kind="headerNoPadding"],
-    button[aria-label="Open sidebar"],
-    button[aria-label="Close sidebar"],
-    button[aria-label="Abrir barra lateral"],
-    button[aria-label="Cerrar barra lateral"] {{
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        align-items: center !important;
-        justify-content: center !important;
-        width: 2.35rem !important;
-        height: 2.35rem !important;
-        color: #FAD9B9 !important;
-        background: rgba(32, 35, 45, 0.88) !important;
-        border: 1px solid rgba(250, 217, 185, 0.22) !important;
-        border-radius: 999px !important;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.35) !important;
-        z-index: 2147483647 !important;
-    }}
-
-    [data-testid="collapsedControl"] svg,
-    [data-testid="stSidebarCollapsedControl"] svg,
-    [data-testid="stSidebarCollapseButton"] svg,
-    button[kind="header"] svg,
-    button[kind="headerNoPadding"] svg,
-    button[aria-label="Open sidebar"] svg,
-    button[aria-label="Close sidebar"] svg,
-    button[aria-label="Abrir barra lateral"] svg,
-    button[aria-label="Cerrar barra lateral"] svg {{
-        width: 1.2rem !important;
-        height: 1.2rem !important;
-        color: #FAD9B9 !important;
-        fill: #FAD9B9 !important;
-        stroke: #FAD9B9 !important;
-        stroke-width: 2.4px !important;
-    }}
-
-    /* Refuerzo: la flecha queda por encima del fondo y del iframe de recomendaciones. */
-    header[data-testid="stHeader"] [data-testid="collapsedControl"],
-    header[data-testid="stHeader"] [data-testid="stSidebarCollapsedControl"],
-    header[data-testid="stHeader"] [data-testid="stSidebarCollapseButton"],
-    header[data-testid="stHeader"] button[aria-label="Open sidebar"],
-    header[data-testid="stHeader"] button[aria-label="Close sidebar"],
-    header[data-testid="stHeader"] button[aria-label="Abrir barra lateral"],
-    header[data-testid="stHeader"] button[aria-label="Cerrar barra lateral"] {{
-        display: flex !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-        position: fixed !important;
-        top: 0.65rem !important;
-        left: 0.65rem !important;
-        z-index: 2147483647 !important;
-        pointer-events: auto !important;
+    .stApp {{
+        background-image: linear-gradient(rgba(22, 22, 20, 0.9), rgba(22, 22, 20, 0.9)),
+                          url("data:image/png;base64,{img_base64}");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
     }}
 
     [data-testid="stAppViewContainer"] {{
@@ -210,49 +127,331 @@ st.markdown(
         overflow: hidden !important;
     }}
 
-    .stApp {{
-        background-image: linear-gradient(rgba(22, 22, 20, 0.9), rgba(22, 22, 20, 0.9)),
-                          url("data:image/png;base64,{img_base64}");
-        background-size: cover;
-        background-position: center;
-        background-attachment: fixed;
-    }}
-
     iframe {{
         display: block !important;
         border: none !important;
     }}
 
-    /* Oculta navegación automática de multipágina: app / dashboard / register */
+    /* ============================================================
+       HEADER / DEPLOY / FLECHA SIDEBAR
+       Clave del arreglo:
+       - El header de Streamlit NO captura clics ni ocupa alto útil.
+       - No se usa display:none sobre el header porque Streamlit puede meter
+         dentro de él la flecha nativa de abrir/cerrar sidebar.
+       - Solo los botones reales del sidebar recuperan pointer-events.
+       ============================================================ */
+    header[data-testid="stHeader"] {{
+        display: block !important;
+        visibility: visible !important;
+        position: fixed !important;
+        inset: 0 0 auto 0 !important;
+        height: 0 !important;
+        min-height: 0 !important;
+        max-height: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        border: none !important;
+        pointer-events: none !important;
+        z-index: 2147483000 !important;
+        overflow: visible !important;
+    }}
+
+    /* El header y su toolbar quedan vivos, pero son transparentes al ratón.
+       Esto evita que bloqueen el botón de ocultar sidebar. */
+    header[data-testid="stHeader"] *,
+    [data-testid="stToolbar"],
+    [data-testid="stToolbar"] *,
+    [data-testid="stToolbarActions"],
+    [data-testid="stToolbarActions"] *,
+    [data-testid="stHeaderActionElements"],
+    [data-testid="stHeaderActionElements"] * {{
+        pointer-events: none !important;
+    }}
+
+    [data-testid="stToolbar"],
+    [data-testid="stToolbarActions"],
+    [data-testid="stHeaderActionElements"] {{
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        height: 0 !important;
+        min-height: 0 !important;
+        max-height: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        overflow: visible !important;
+    }}
+
+    /* Oculta navegación automática de multipágina: app / dashboard / register. */
     [data-testid="stSidebarNav"] {{
         display: none !important;
+        visibility: hidden !important;
         height: 0 !important;
         min-height: 0 !important;
         margin: 0 !important;
         padding: 0 !important;
+        overflow: hidden !important;
     }}
 
-    /* Sidebar compacto, limpio y sin scroll interno */
+    /* Ocultar Deploy/menú/estado sin matar la flecha nativa. */
+    [data-testid="stDecoration"],
+    [data-testid="stStatusWidget"],
+    [data-testid="stMainMenu"],
+    [data-testid="stDeployButton"],
+    [data-testid="stToolbar"] [data-testid="stDeployButton"],
+    [data-testid="stToolbar"] [data-testid="stStatusWidget"],
+    [data-testid="stToolbar"] [data-testid="stMainMenu"],
+    .stDeployButton,
+    .stAppDeployButton,
+    #MainMenu,
+    footer,
+    button[title="Deploy"],
+    button[aria-label="Deploy"],
+    a[href*="streamlit.io/cloud"],
+    a[href*="share.streamlit.io"] {{
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        width: 0 !important;
+        height: 0 !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        pointer-events: none !important;
+    }}
+
+    /* Flecha de abrir/cerrar: mismo diseño en estado abierto y cerrado.
+       Importante: estos selectores van DESPUÉS del bloqueo del header para
+       devolver el click únicamente a la flecha. */
+    [data-testid="collapsedControl"],
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="stSidebarCollapseButton"],
+    header[data-testid="stHeader"] [data-testid="collapsedControl"],
+    header[data-testid="stHeader"] [data-testid="stSidebarCollapsedControl"],
+    header[data-testid="stHeader"] [data-testid="stSidebarCollapseButton"] {{
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        position: fixed !important;
+        top: 6.8rem !important;
+        left: 0.72rem !important;
+        width: 2.75rem !important;
+        height: 2.75rem !important;
+        min-width: 2.75rem !important;
+        min-height: 2.75rem !important;
+        align-items: center !important;
+        justify-content: center !important;
+        transform: none !important;
+        clip: auto !important;
+        overflow: visible !important;
+        pointer-events: auto !important;
+        z-index: 2147483647 !important;
+        background: rgba(32, 35, 45, 0.98) !important;
+        border: 1px solid rgba(250, 217, 185, 0.34) !important;
+        border-radius: 999px !important;
+        box-shadow: 0 12px 32px rgba(0,0,0,0.68) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+    }}
+
+    [data-testid="collapsedControl"] *,
+    [data-testid="stSidebarCollapsedControl"] *,
+    [data-testid="stSidebarCollapseButton"] *,
+    header[data-testid="stHeader"] [data-testid="collapsedControl"] *,
+    header[data-testid="stHeader"] [data-testid="stSidebarCollapsedControl"] *,
+    header[data-testid="stHeader"] [data-testid="stSidebarCollapseButton"] * {{
+        pointer-events: auto !important;
+    }}
+
+    [data-testid="collapsedControl"] button,
+    [data-testid="stSidebarCollapsedControl"] button,
+    [data-testid="stSidebarCollapseButton"] button,
+    button[aria-label="Open sidebar"],
+    button[aria-label="Close sidebar"],
+    button[aria-label="Abrir barra lateral"],
+    button[aria-label="Cerrar barra lateral"],
+    button[title="Open sidebar"],
+    button[title="Close sidebar"],
+    button[title="Abrir barra lateral"],
+    button[title="Cerrar barra lateral"] {{
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 2.55rem !important;
+        height: 2.55rem !important;
+        min-width: 2.55rem !important;
+        min-height: 2.55rem !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        color: #FAD9B9 !important;
+        background: rgba(32, 35, 45, 0.98) !important;
+        border: 1px solid rgba(250, 217, 185, 0.34) !important;
+        border-radius: 999px !important;
+        box-shadow: 0 12px 32px rgba(0,0,0,0.68) !important;
+        pointer-events: auto !important;
+        cursor: pointer !important;
+        z-index: 2147483647 !important;
+    }}
+
+    /* Refuerzo para cuando Streamlit deja el botón real fuera del contenedor
+       collapsedControl: lo fijamos igualmente más abajo y clicable. */
+    button[aria-label="Open sidebar"],
+    button[aria-label="Close sidebar"],
+    button[aria-label="Abrir barra lateral"],
+    button[aria-label="Cerrar barra lateral"],
+    button[title="Open sidebar"],
+    button[title="Close sidebar"],
+    button[title="Abrir barra lateral"],
+    button[title="Cerrar barra lateral"] {{
+        position: fixed !important;
+        top: 6.8rem !important;
+        left: 0.85rem !important;
+        width: 2.75rem !important;
+        height: 2.75rem !important;
+        min-width: 2.75rem !important;
+        min-height: 2.75rem !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        background: rgba(32, 35, 45, 0.98) !important;
+        color: #FAD9B9 !important;
+        border: 1px solid rgba(250, 217, 185, 0.34) !important;
+        border-radius: 999px !important;
+        box-shadow: 0 12px 32px rgba(0,0,0,0.68) !important;
+        pointer-events: auto !important;
+        cursor: pointer !important;
+        z-index: 2147483647 !important;
+        transform: none !important;
+    }}
+
+    [data-testid="collapsedControl"] svg,
+    [data-testid="stSidebarCollapsedControl"] svg,
+    [data-testid="stSidebarCollapseButton"] svg,
+    button[aria-label="Open sidebar"] svg,
+    button[aria-label="Close sidebar"] svg,
+    button[aria-label="Abrir barra lateral"] svg,
+    button[aria-label="Cerrar barra lateral"] svg {{
+        width: 1.35rem !important;
+        height: 1.35rem !important;
+        color: #FAD9B9 !important;
+        fill: #FAD9B9 !important;
+        stroke: #FAD9B9 !important;
+        stroke-width: 2.7px !important;
+        filter: drop-shadow(0 0 5px rgba(250,217,185,0.55)) !important;
+    }}
+
+
+    /* Fallback fuerte: en algunas versiones, el botón de mostrar sidebar no
+       usa collapsedControl sino un botón de header genérico. Por eso movemos
+       cualquier botón real del header fuera del header y lo dejamos como
+       botón flotante dentro de la zona visible de la app. */
+    header[data-testid="stHeader"] button,
+    header[data-testid="stHeader"] [role="button"],
+    [data-testid="stHeader"] button,
+    [data-testid="stHeader"] [role="button"],
+    [data-testid="stHeader"] [data-testid*="BaseButton"],
+    [data-testid="stHeader"] [data-testid*="baseButton"] {{
+        position: fixed !important;
+        top: 6.8rem !important;
+        left: 1rem !important;
+        width: 2.85rem !important;
+        height: 2.85rem !important;
+        min-width: 2.85rem !important;
+        min-height: 2.85rem !important;
+        max-width: 2.85rem !important;
+        max-height: 2.85rem !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        overflow: visible !important;
+        transform: none !important;
+        clip: auto !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: rgba(32, 35, 45, 0.98) !important;
+        color: #FAD9B9 !important;
+        border: 1px solid rgba(250, 217, 185, 0.36) !important;
+        border-radius: 999px !important;
+        box-shadow: 0 14px 34px rgba(0,0,0,0.72) !important;
+        pointer-events: auto !important;
+        cursor: pointer !important;
+        z-index: 2147483647 !important;
+    }}
+
+    header[data-testid="stHeader"] button svg,
+    [data-testid="stHeader"] button svg,
+    [data-testid="stHeader"] [role="button"] svg,
+    [data-testid="stHeader"] [data-testid*="BaseButton"] svg,
+    [data-testid="stHeader"] [data-testid*="baseButton"] svg {{
+        width: 1.45rem !important;
+        height: 1.45rem !important;
+        color: #FAD9B9 !important;
+        fill: #FAD9B9 !important;
+        stroke: #FAD9B9 !important;
+        stroke-width: 2.7px !important;
+        filter: drop-shadow(0 0 6px rgba(250,217,185,0.55)) !important;
+    }}
+
+    /* Si algún botón del header es Deploy o menú, permanece oculto aunque
+       arriba hayamos hecho visibles los botones genéricos del header. */
+    header[data-testid="stHeader"] button[title="Deploy"],
+    header[data-testid="stHeader"] button[aria-label="Deploy"],
+    [data-testid="stHeader"] [data-testid="stDeployButton"],
+    [data-testid="stHeader"] [data-testid="stStatusWidget"],
+    [data-testid="stHeader"] [data-testid="stMainMenu"] {{
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+    }}
+
+    /* ============================================================
+       SIDEBAR LOGUEADA
+       ============================================================ */
     section[data-testid="stSidebar"] {{
         background-color: #20232D !important;
         border-right: 1px solid rgba(250, 217, 185, 0.06) !important;
+        z-index: 999999 !important;
+    }}
+
+    section[data-testid="stSidebar"] * {{
+        pointer-events: auto;
     }}
 
     section[data-testid="stSidebar"] > div:first-child,
     section[data-testid="stSidebarContent"] {{
-        overflow: hidden !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
         padding-top: 0 !important;
         padding-bottom: 0 !important;
     }}
 
     section[data-testid="stSidebar"] .block-container {{
         height: 100vh !important;
-        overflow: hidden !important;
-        padding: 0.35rem 0.65rem 0.7rem 0.65rem !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        padding: 0.55rem 0.65rem 0.8rem 0.65rem !important;
+    }}
+
+    section[data-testid="stSidebar"] .block-container > div:first-child {{
+        min-height: calc(100vh - 1.35rem) !important;
+        display: flex !important;
+        flex-direction: column !important;
     }}
 
     section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{
-        gap: 0.35rem !important;
+        gap: 0.28rem !important;
     }}
 
     section[data-testid="stSidebar"] hr {{
@@ -261,8 +460,8 @@ st.markdown(
     }}
 
     .sidebar-user-card {{
-        margin-top: 0.1rem !important;
-        margin-bottom: 0.55rem !important;
+        margin-top: 9.6rem !important;
+        margin-bottom: 0.9rem !important;
         padding: 0 !important;
     }}
 
@@ -272,123 +471,224 @@ st.markdown(
     .username-link:active {{
         color: inherit !important;
         text-decoration: none !important;
+        display: block !important;
     }}
 
-    .username-link h3 {{
-        color: #C7AD93 !important;
+    .profile-card {{
+        display: flex !important;
+        align-items: center !important;
+        gap: 0.85rem !important;
+        padding: 0.9rem 0.95rem !important;
+        border-radius: 18px !important;
+        background: linear-gradient(180deg, rgba(34,39,53,0.96), rgba(26,30,42,0.98)) !important;
+        border: 1px solid rgba(250, 217, 185, 0.14) !important;
+        box-shadow: 0 14px 26px rgba(0,0,0,0.28) !important;
+        transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease !important;
+    }}
+
+    .username-link:hover .profile-card {{
+        transform: translateY(-1px) !important;
+        border-color: rgba(250, 217, 185, 0.32) !important;
+        box-shadow: 0 18px 28px rgba(0,0,0,0.34) !important;
+    }}
+
+    .profile-avatar {{
+        width: 3rem !important;
+        height: 3rem !important;
+        min-width: 3rem !important;
+        border-radius: 999px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        font-size: 1.3rem !important;
+        font-weight: 900 !important;
+        color: #FFF3E4 !important;
+        background: linear-gradient(135deg, #8B5A62, #C7AD93) !important;
+        border: 1px solid rgba(255,255,255,0.12) !important;
+        box-shadow: 0 8px 18px rgba(0,0,0,0.32) !important;
+    }}
+
+    .profile-copy {{
+        min-width: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 0.1rem !important;
+    }}
+
+    .profile-label {{
+        font-size: 0.72rem !important;
+        line-height: 1 !important;
+        font-weight: 800 !important;
+        letter-spacing: 0.08em !important;
+        text-transform: uppercase !important;
+        color: rgba(199, 173, 147, 0.86) !important;
+    }}
+
+    .profile-name {{
+        color: #F5DEC4 !important;
         margin: 0 !important;
-        cursor: pointer;
-        position: relative;
-        display: inline-block;
-        font-size: 1.15rem !important;
-        line-height: 1.1 !important;
-        font-weight: 850 !important;
-        letter-spacing: 0.03em !important;
-        transition: all 0.2s ease;
+        font-size: 1.18rem !important;
+        line-height: 1.15 !important;
+        font-weight: 900 !important;
+        letter-spacing: 0.01em !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
     }}
 
-    .username-link h3::after {{
-        content: "";
-        position: absolute;
-        left: 0;
-        bottom: -4px;
-        width: 0;
-        height: 2px;
-        background: linear-gradient(to right, #C7AD93, #FAD9B9);
-        transition: width 0.22s ease;
+    .profile-hint {{
+        color: rgba(160, 139, 119, 0.92) !important;
+        font-size: 0.76rem !important;
+        line-height: 1 !important;
+        font-weight: 700 !important;
     }}
 
-    .username-link:hover h3 {{
-        color: #FAD9B9 !important;
-        text-shadow: 0 0 8px rgba(250, 217, 185, 0.35);
+    /* El perfil se navega con st.switch_page para no perder la sesión.
+       Este botón nativo queda encima de la tarjeta, pero invisible. */
+    section[data-testid="stSidebar"] .element-container:has([data-testid="stBaseButton-tertiary"]) {{
+        margin-top: -5.65rem !important;
+        margin-bottom: 0.75rem !important;
+        position: relative !important;
+        z-index: 60 !important;
     }}
 
-    .username-link:hover h3::after {{
-        width: 100%;
+    section[data-testid="stSidebar"] [data-testid="stBaseButton-tertiary"] {{
+        height: 5.35rem !important;
+        min-height: 5.35rem !important;
+        width: 100% !important;
+        border-radius: 18px !important;
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        opacity: 0.01 !important;
+        color: transparent !important;
+        cursor: pointer !important;
+        pointer-events: auto !important;
+        position: relative !important;
+        z-index: 70 !important;
+    }}
+
+    section[data-testid="stSidebar"] [data-testid="stBaseButton-tertiary"] * {{
+        opacity: 0 !important;
+        color: transparent !important;
     }}
 
     .sidebar-title {{
-        color: #C7AD93 !important;
-        margin: 0.1rem 0 0.55rem !important;
-        font-size: 1rem !important;
+        color: #E6C8A8 !important;
+        margin: 0.2rem 0 0.75rem !important;
+        font-size: 1.08rem !important;
         line-height: 1.1 !important;
-        font-weight: 850 !important;
-        letter-spacing: 0.03em !important;
+        font-weight: 900 !important;
+        letter-spacing: 0.02em !important;
         text-align: left !important;
     }}
 
     .genre-name {{
-        color: #DCC5AD !important;
+        color: #E8D2BA !important;
         text-align: left !important;
-        font-size: 0.8rem !important;
-        line-height: 1 !important;
+        font-size: 0.98rem !important;
+        line-height: 1.1 !important;
         font-weight: 850 !important;
-        letter-spacing: 0.025em !important;
-        margin: 0.43rem 0 0.03rem 0 !important;
+        letter-spacing: 0.015em !important;
+        margin: 0.55rem 0 0.14rem 0 !important;
         padding: 0 !important;
     }}
 
-    /* Estrellas de gustos: botones terciarios pequeños, visibles y estables */
+    /* Estrellas de gustos: más grandes, más juntas y visualmente más limpias. */
+    section[data-testid="stSidebar"] div[data-testid="stHorizontalBlock"] {{
+        gap: 0.08rem !important;
+    }}
+
+    section[data-testid="stSidebar"] div[data-testid="column"] {{
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }}
+
     section[data-testid="stSidebar"] [data-testid="stBaseButton-secondary"] {{
         width: 100% !important;
         min-width: 0 !important;
-        height: 1.75rem !important;
-        min-height: 1.75rem !important;
+        height: 1.95rem !important;
+        min-height: 1.95rem !important;
         padding: 0 !important;
         margin: 0 !important;
         border: none !important;
         background: transparent !important;
         color: #FFD9AD !important;
-        font-size: 1.18rem !important;
+        font-size: 1.82rem !important;
         line-height: 1 !important;
-        font-weight: 800 !important;
-        text-shadow: 0 0 8px rgba(255, 217, 173, 0.42) !important;
+        font-weight: 900 !important;
+        letter-spacing: -0.14em !important;
+        text-shadow: 0 0 7px rgba(255, 217, 173, 0.28) !important;
         box-shadow: none !important;
         border-radius: 999px !important;
         transition: transform 0.13s ease, color 0.13s ease, text-shadow 0.13s ease, background-color 0.13s ease !important;
+    }}
+
+    section[data-testid="stSidebar"] [data-testid="stBaseButton-secondary"] p {{
+        width: 100% !important;
+        text-align: center !important;
+        line-height: 1 !important;
+        margin: 0 !important;
+        color: inherit !important;
     }}
 
     section[data-testid="stSidebar"] [data-testid="stBaseButton-secondary"]:hover {{
         background-color: rgba(250, 217, 185, 0.08) !important;
         color: #FFF0C8 !important;
         text-shadow: 0 0 14px rgba(255, 240, 200, 0.75) !important;
-        transform: scale(1.14) !important;
+        transform: scale(1.13) !important;
     }}
 
-    section[data-testid="stSidebar"] div[data-testid="column"] {{
-        padding-left: 0.05rem !important;
-        padding-right: 0.05rem !important;
+    .sidebar-bottom-push {{
+        height: 0 !important;
+        margin-top: 0 !important;
+        padding-top: 0 !important;
+    }}
+
+    section[data-testid="stSidebar"] .element-container:has(.sidebar-bottom-push) {{
+        margin-top: auto !important;
     }}
 
     .sidebar-actions-spacer {{
-        margin-top: 0.75rem !important;
-        padding-top: 0.75rem !important;
+        padding-top: 0.95rem !important;
         border-top: 1px solid rgba(160, 139, 119, 0.25) !important;
     }}
 
-    /* Botones Dashboard / Cerrar sesión */
+    /* Botón Cerrar sesión */
     section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"] {{
-        height: 2.65rem !important;
-        min-height: 2.65rem !important;
-        border-radius: 13px !important;
-        font-size: 0.74rem !important;
-        font-weight: 750 !important;
-        padding: 0.2rem 0.45rem !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        height: 3.05rem !important;
+        min-height: 3.05rem !important;
+        border-radius: 18px !important;
+        font-size: 0.92rem !important;
+        font-weight: 850 !important;
+        padding: 0.25rem 0.8rem !important;
         white-space: nowrap !important;
-        background-color: #78444A !important;
+        background: linear-gradient(180deg, #84505A, #78444A) !important;
         color: #FAD9B9 !important;
         border: 1px solid rgba(250, 217, 185, 0.13) !important;
-        box-shadow: 0 9px 19px rgba(0,0,0,0.28) !important;
+        box-shadow: 0 12px 22px rgba(0,0,0,0.28) !important;
         transition: transform 0.16s ease, background-color 0.16s ease, border 0.16s ease !important;
     }}
 
+    section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"] p {{
+        width: 100% !important;
+        margin: 0 !important;
+        text-align: center !important;
+        color: #FAD9B9 !important;
+    }}
+
     section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"]:hover {{
-        background-color: #945259 !important;
+        background: linear-gradient(180deg, #935863, #87505A) !important;
         border-color: #d0b59b !important;
         transform: translateY(-1px) !important;
     }}
 
-    /* Login */
+    /* ============================================================
+       LOGIN
+       ============================================================ */
     .st-emotion-cache-1gz5zxc {{
         background-color: rgba(22, 22, 20, 0.85) !important;
         border-radius: 20px !important;
@@ -448,11 +748,12 @@ st.markdown(
         color: #FAD9B9;
         text-decoration: underline;
     }}
+
+{_LOGIN_ONLY_HIDE_SIDEBAR_CSS}
     </style>
     """,
     unsafe_allow_html=True,
 )
-
 
 # ---------- Backend ----------
 def _auth_headers(token: Optional[str]) -> dict:
@@ -521,6 +822,57 @@ def _fetch_preferences(token: str) -> list[dict]:
     except requests.RequestException:
         pass
     return []
+
+
+# Orden visual fijo de la sidebar. Así, al cambiar estrellas, el backend puede
+# devolver los géneros ordenados por puntuación, pero la UI mantiene cada género
+# en su sitio.
+_GENRE_VISUAL_ORDER = {
+    "action": 0,
+    "accion": 0,
+    "acción": 0,
+    "adventure": 1,
+    "aventura": 1,
+    "comedy": 2,
+    "comedia": 2,
+    "drama": 3,
+    "romance": 4,
+    "horror": 5,
+    "terror": 5,
+    "sci-fi": 6,
+    "scifi": 6,
+    "science fiction": 6,
+    "ciencia ficcion": 6,
+    "ciencia ficción": 6,
+    "thriller": 7,
+    "crime": 8,
+    "crimen": 8,
+    "mystery": 9,
+    "misterio": 9,
+    "fantasy": 10,
+    "fantasia": 10,
+    "fantasía": 10,
+    "animation": 11,
+    "animacion": 11,
+    "animación": 11,
+    "documentary": 12,
+    "documental": 12,
+}
+
+
+def _normalize_genre_name(name: str) -> str:
+    return str(name or "").strip().lower().replace("_", "-")
+
+
+def _stable_preference_order(prefs: list[dict]) -> list[dict]:
+    """Mantiene un orden visual estable, independiente del score de cada género."""
+    return sorted(
+        prefs,
+        key=lambda pref: (
+            _GENRE_VISUAL_ORDER.get(_normalize_genre_name(pref.get("genre_name")), 10_000),
+            int(pref.get("genre_id") or 0),
+        ),
+    )
 
 
 def _fetch_movies(token: str) -> list[dict]:
@@ -598,8 +950,8 @@ def _render_preferences_sidebar(prefs: list[dict]) -> Optional[tuple[int, float]
             unsafe_allow_html=True,
         )
 
-        cols = st.sidebar.columns(5, gap="small")
-        for index, col in enumerate(cols):
+        star_cols = st.sidebar.columns([0.88, 0.88, 0.88, 0.88, 0.88, 5.6], gap="small")
+        for index, col in enumerate(star_cols[:5]):
             score = index + 1
             label = "★" if score <= current else "☆"
             with col:
@@ -696,42 +1048,55 @@ def dashboard() -> None:
     token = st.session_state.get("token")
     username = st.session_state.get("username") or "Usuario"
 
+    if st.session_state.pop("_prefs_updated", False):
+        st.toast("Gustos actualizados. Recalculando recomendaciones…", icon="🎬")
+
     # Sidebar
+    profile_initial = (username[:1] or "U").upper()
     st.sidebar.markdown(
         f"""
         <div class="sidebar-user-card">
-            <a href="/Dashboard" target="_self" class="username-link">
-                <h3>{html.escape(username)}</h3>
-            </a>
+            <div class="username-link profile-shell" title="Ir a Mi Dashboard">
+                <div class="profile-card">
+                    <div class="profile-avatar">{html.escape(profile_initial)}</div>
+                    <div class="profile-copy">
+                        <div class="profile-label">Mi perfil</div>
+                        <div class="profile-name">{html.escape(username)}</div>
+                        <div class="profile-hint">Ir a tu dashboard</div>
+                    </div>
+                </div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+    if st.sidebar.button(
+        "Ir a Mi Dashboard",
+        key="sidebar_profile_dashboard",
+        type="tertiary",
+        use_container_width=True,
+    ):
+        st.switch_page("pages/Dashboard.py")
     st.sidebar.divider()
 
-    st.sidebar.markdown("<h4 class='sidebar-title'>🎭 Mis gustos</h4>", unsafe_allow_html=True)
+    st.sidebar.markdown("<h4 class='sidebar-title'>Mis gustos</h4>", unsafe_allow_html=True)
 
-    prefs = _fetch_preferences(token)
+    prefs = _stable_preference_order(_fetch_preferences(token))
     preference_change = _render_preferences_sidebar(prefs)
 
     if preference_change:
         genre_id, score = preference_change
         ok = _save_preference(token, genre_id, score, prefs)
         if ok:
-            st.toast("Gustos actualizados. Recalculando recomendaciones…", icon="🎬")
-            time.sleep(2)
+            st.session_state["_prefs_updated"] = True
             st.rerun()
         else:
             st.sidebar.error("No se pudo guardar el gusto.")
 
+    st.sidebar.markdown("<div class='sidebar-bottom-push'></div>", unsafe_allow_html=True)
     st.sidebar.markdown("<div class='sidebar-actions-spacer'></div>", unsafe_allow_html=True)
 
-    col_dashboard, spacer, col_logout = st.sidebar.columns([1.08, 0.42, 1.08], gap="small")
-    with col_dashboard:
-        if st.button("Mi Dashboard", key="sidebar_dashboard", type="primary", use_container_width=True):
-            st.switch_page("pages/Dashboard.py")
-    with spacer:
-        st.write("")
+    _, col_logout, _ = st.sidebar.columns([0.06, 0.88, 0.06], gap="small")
     with col_logout:
         if st.button("Cerrar Sesión", key="sidebar_logout", type="primary", use_container_width=True):
             st.session_state.authenticated = False
