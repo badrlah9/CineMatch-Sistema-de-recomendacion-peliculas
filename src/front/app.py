@@ -89,10 +89,47 @@ st.markdown(f"""
     .register-container {{ text-align: center; margin-top: 25px; }}
     .register-link {{ color: #A08B77; text-decoration: none; font-weight: 500; }}
     .register-link:hover {{ color: #FAD9B9; text-decoration: underline; }}
+
+    /* Estrellas de preferencias: quitar aspecto de botón */
+    [data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button {{
+        background: none !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        min-height: 0 !important;
+        height: 1.6rem !important;
+        width: 1.6rem !important;
+        font-size: 1.1rem !important;
+        color: #C7AD93 !important;
+        line-height: 1 !important;
+        transition: transform 0.15s, color 0.15s !important;
+    }}
+    [data-testid="stSidebar"] [data-testid="stExpander"] .stButton > button:hover {{
+        background: none !important;
+        border: none !important;
+        color: #FAD9B9 !important;
+        transform: scale(1.3) !important;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
 # --- Helpers ---
+def _save_preference(token: str, genre_id: int, new_score: float, all_prefs: list[dict]) -> None:
+    updated = [
+        {"genre_id": p["genre_id"], "score": new_score if p["genre_id"] == genre_id else p["score"]}
+        for p in all_prefs
+    ]
+    try:
+        requests.put(
+            f"{API_URL}/users/me/preferences",
+            json=updated,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
 def _extract_year(title: str) -> str:
     m = re.search(r'\((\d{4})\)', title)
     return m.group(1) if m else ""
@@ -184,6 +221,7 @@ def login_screen():
                         if resp.status_code == 200:
                             st.session_state.authenticated = True
                             st.session_state.token = resp.json()["access_token"]
+                            st.session_state.username = user
                             st.rerun()
                         else:
                             st.error("Credenciales incorrectas")
@@ -200,18 +238,29 @@ def login_screen():
 
 def dashboard():
     # Sidebar
+    username = st.session_state.get("username", "")
+    if username:
+        st.sidebar.markdown(f"**{username}**")
+        st.sidebar.divider()
+
     if st.sidebar.button("Actualizar"):
         st.rerun()
 
-    if st.sidebar.button("👤 Mi Perfil"):
+    if st.sidebar.button("Mi Dashboard"):
         st.switch_page("pages/Dashboard.py")
 
     with st.sidebar.expander("🎭 Mis gustos"):
         prefs = _fetch_preferences(st.session_state.token)
         if prefs:
             for p in prefs:
-                stars = "★" * round(p["score"]) + "☆" * (5 - round(p["score"]))
-                st.markdown(f"**{p['genre_name']}** {stars}")
+                st.markdown(f"**{p['genre_name']}**")
+                current = round(p["score"])
+                cols = st.columns(5)
+                for i in range(5):
+                    label = "★" if i < current else "☆"
+                    if cols[i].button(label, key=f"pref_{p['genre_id']}_{i}"):
+                        _save_preference(st.session_state.token, p["genre_id"], float(i + 1), prefs)
+                        st.rerun()
         else:
             st.caption("No tienes géneros guardados.")
 

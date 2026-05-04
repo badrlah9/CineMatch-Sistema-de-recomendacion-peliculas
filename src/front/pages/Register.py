@@ -96,6 +96,14 @@ def _fetch_genre_name_to_id() -> dict[str, int]:
         pass
     return {}
 
+def validate_password(pwd: str) -> bool:
+    return (
+        len(pwd) >= 6
+        and any(c.isupper() for c in pwd)
+        and any(c.isdigit() for c in pwd)
+    )
+
+
 def _build_preferences(
     votos_estrellas: dict[str, int | None],
     generos_extra: list[str],
@@ -147,6 +155,10 @@ def registro_total():
         user = c1.text_input("Usuario", placeholder="usuario123")
         password = c2.text_input("Contraseña", type="password")
 
+        pwd_ok = validate_password(password)
+        if password and not pwd_ok:
+            st.error("La contraseña debe tener al menos 6 caracteres, una mayúscula y un número.")
+
         st.divider()
 
         st.subheader("2. Tus Imprescindibles")
@@ -181,7 +193,7 @@ def registro_total():
 
         st.divider()
 
-        if st.button("Finalizar Registro"):
+        if st.button("Finalizar Registro", disabled=bool(password and not pwd_ok)):
             if not user or not password:
                 st.error("Faltan datos por rellenar.")
                 return
